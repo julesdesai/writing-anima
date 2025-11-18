@@ -1,0 +1,406 @@
+import React, { useState, useEffect, useCallback } from 'react';
+import { Pen, Target, Home, User, LogOut, Users } from 'lucide-react';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import AuthModal from './components/Auth/AuthModal';
+import ProjectDashboard from './components/Projects/ProjectDashboard';
+import PurposeStep from './components/PurposeStep/PurposeStep';
+import WritingInterface from './components/WritingInterface';
+import InquiryComplexManager from './components/InquiryComplex/InquiryComplexManager';
+import PersonaManager from './components/PersonaManager/PersonaManager';
+import inquiryComplexService from './services/inquiryComplexService';
+import projectService from './services/projectService';
+
+function AppContent() {
+  const { currentUser, logout } = useAuth();
+  const [currentMode, setCurrentMode] = useState('dashboard'); // 'dashboard' | 'home' | 'writing' | 'inquiry' | 'personas'
+  const [currentProject, setCurrentProject] = useState(null);
+  const [purpose, setPurpose] = useState('');
+  const [content, setContent] = useState(''); // Lift content state to App level
+  const [feedback, setFeedback] = useState([]); // Lift feedback state to App level
+  const [writingCriteria, setWritingCriteria] = useState(null); // Store writing criteria
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState('login');
+  const [isMonitoring, setIsMonitoring] = useState(true); // Global monitoring state for agents
+
+  // Auto-save project content and feedback
+  useEffect(() => {
+    if (!currentProject || !currentUser) return;
+    
+    const autoSaveInterval = setInterval(async () => {
+      const hasContentChanges = content !== currentProject.content;
+      const hasFeedbackChanges = JSON.stringify(feedback) !== JSON.stringify(currentProject.feedback || []);
+      
+      // Check for inquiry complex changes
+      const currentComplexes = inquiryComplexService.getAllComplexes();
+      const hasComplexChanges = JSON.stringify(currentComplexes.map(c => c.id)) !== 
+        JSON.stringify((currentProject.inquiryComplexes || []).map(c => c.id));
+      
+      // Check for writing criteria changes
+      const hasCriteriaChanges = JSON.stringify(writingCriteria) !== JSON.stringify(currentProject.writingCriteria);
+      
+      if (hasContentChanges || hasFeedbackChanges || hasComplexChanges || hasCriteriaChanges) {
+        try {
+          // Save complexes to project first if they changed
+          if (hasComplexChanges && currentComplexes.length > 0) {
+            console.log('Auto-saving inquiry complexes:', currentComplexes.length);
+            const serializedComplexes = currentComplexes.map(c => inquiryComplexService.serializeComplex(c));
+            await projectService.updateInquiryComplexes(currentProject.id, serializedComplexes);
+          }
+          
+          // Save writing criteria if they changed
+          if (hasCriteriaChanges) {
+            console.log('Auto-saving writing criteria');
+            await projectService.updateWritingCriteria(currentProject.id, writingCriteria);
+          }
+          
+          // Then save other project data
+          await projectService.updateProject(currentProject.id, {
+            content,
+            feedback,
+            purpose
+          });
+          
+          // Update current project reference to avoid repeated saves
+          const serializedComplexes = currentComplexes.map(c => inquiryComplexService.serializeComplex(c));
+          setCurrentProject(prev => {
+            if (!prev) return prev; // Guard against null
+            return {
+              ...prev,
+              content,
+              feedback: [...feedback],
+              purpose,
+              writingCriteria,
+              inquiryComplexes: serializedComplexes
+            };
+          });
+        } catch (error) {
+          console.error('Auto-save failed:', error);
+        }
+      }
+    }, 3000); // Auto-save every 3 seconds
+
+    return () => clearInterval(autoSaveInterval);
+  }, [currentProject, currentUser, content, feedback, purpose, writingCriteria]);
+
+  const handleSelectProject = async (project) => {
+    try {
+      // Safely handle null project
+      if (!project) {
+        console.error('[App] handleSelectProject called with null project');
+        return;
+      }
+
+      console.log('[App] Loading project:', project.id);
+
+      setCurrentProject(project);
+      setPurpose(project.purpose || '');
+      setContent(project.content || '');
+      setFeedback(project.feedback || []); // Load saved feedback
+      setWritingCriteria(project.writingCriteria || null); // Load saved writing criteria
+      
+      // Clear existing complexes and load complexes for this project
+      inquiryComplexService.clearAll();
+      if (project.inquiryComplexes && project.inquiryComplexes.length > 0) {
+        console.log('Loading inquiry complexes:', project.inquiryComplexes);
+        // Load complexes into the inquiry complex service
+        project.inquiryComplexes.forEach((complex, index) => {
+          try {
+            inquiryComplexService.loadComplex(complex);
+            console.log(`Loaded complex ${index + 1}:`, complex.centralQuestion);
+          } catch (error) {
+            console.error(`Failed to load complex ${index + 1}:`, error);
+          }
+        });
+      } else {
+        console.log('No inquiry complexes to load for this project');
+      }
+      
+      setCurrentMode(project.purpose ? 'writing' : 'home');
+      console.log('Project loaded successfully, mode set to:', project.purpose ? 'writing' : 'home');
+    } catch (error) {
+      console.error('Error in handleSelectProject:', error);
+      // Still try to continue with basic project setup if project exists
+      if (project) {
+        setCurrentProject(project);
+        setPurpose(project.purpose || '');
+        setContent(project.content || '');
+        setFeedback([]);
+        setWritingCriteria(null); // Clear criteria for error state
+        inquiryComplexService.clearAll(); // Clear complexes for error state
+        setCurrentMode('home');
+      }
+    }
+  };
+
+  const handleCreateProject = (project) => {
+    if (!project) {
+      console.error('[App] handleCreateProject called with null project');
+      return;
+    }
+
+    setCurrentProject(project);
+    setPurpose('');
+    setContent('');
+    setFeedback([]); // Clear feedback for new project
+    setWritingCriteria(null); // Clear criteria for new project
+    inquiryComplexService.clearAll(); // Clear complexes for new project
+    setCurrentMode('home');
+  };
+
+  const handlePurposeSubmit = async (purposeText) => {
+    setPurpose(purposeText);
+
+    // Generate title from purpose (handle both string and object formats)
+    let projectTitle = 'Untitled Project';
+    if (typeof purposeText === 'object' && purposeText !== null) {
+      projectTitle = purposeText.topic?.substring(0, 50) || 'Untitled Project';
+    } else if (typeof purposeText === 'string') {
+      projectTitle = purposeText.split('.')[0].substring(0, 50) || 'Untitled Project';
+    }
+
+    // Update current project with purpose
+    if (currentProject) {
+      await projectService.updateProject(currentProject.id, {
+        purpose: purposeText,
+        title: projectTitle
+      });
+    }
+
+    setCurrentMode('writing');
+  };
+
+  const handleBackToHome = () => {
+    setCurrentMode(currentProject ? 'home' : 'dashboard');
+  };
+
+  const handleBackToDashboard = () => {
+    // Save current project before going back
+    if (currentProject && (content !== currentProject.content || purpose !== currentProject.purpose || JSON.stringify(feedback) !== JSON.stringify(currentProject.feedback || []))) {
+      projectService.updateProject(currentProject.id, {
+        content,
+        purpose,
+        feedback, // Save current feedback
+        title: typeof purpose === 'object' && purpose !== null 
+          ? (purpose.topic?.substring(0, 50) || currentProject.title)
+          : (purpose?.split('.')[0].substring(0, 50) || currentProject.title)
+      }).catch(error => console.error('Failed to save project:', error));
+    }
+    
+    setCurrentMode('dashboard');
+    setCurrentProject(null);
+    setPurpose('');
+    setContent('');
+    setFeedback([]); // Clear feedback when leaving project
+    setWritingCriteria(null); // Clear criteria when leaving project
+    inquiryComplexService.clearAll(); // Clear complexes when leaving project
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+      setCurrentMode('dashboard');
+      setCurrentProject(null);
+      setPurpose('');
+      setContent('');
+      inquiryComplexService.clearAll(); // Clear complexes on logout
+    } catch (error) {
+      console.error('Logout failed:', error);
+    }
+  };
+
+  // Stable callback for feedback generation
+  const handleFeedbackGenerated = useCallback((insights) => {
+    const newFeedback = insights.map(insight => ({
+      ...insight,
+      id: insight.id || `flow-${Date.now()}-${Math.random()}`,
+      timestamp: insight.timestamp || new Date().toISOString(),
+      status: insight.status || 'active',
+      source: 'flow' // Mark as coming from flow execution
+    }));
+
+    setFeedback(prev => [...prev, ...newFeedback]);
+  }, []);
+
+  // Show auth modal if not logged in
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-obsidian-bg flex items-center justify-center p-2">
+        <div className="obsidian-panel p-8 max-w-sm w-full">
+          <p className="text-sm text-obsidian-text-secondary mb-6">AI-powered writing feedback and analysis</p>
+
+          <div className="space-y-2">
+            <button
+              onClick={() => { setAuthModalMode('login'); setAuthModalOpen(true); }}
+              className="obsidian-button-primary w-full text-sm"
+            >
+              Sign In
+            </button>
+            <button
+              onClick={() => { setAuthModalMode('signup'); setAuthModalOpen(true); }}
+              className="obsidian-button-secondary w-full text-sm"
+            >
+              Create Account
+            </button>
+          </div>
+        </div>
+
+        <AuthModal
+          isOpen={authModalOpen}
+          onClose={() => setAuthModalOpen(false)}
+          initialMode={authModalMode}
+        />
+      </div>
+    );
+  }
+
+  const renderNavigation = () => (
+    <div className="bg-obsidian-surface border-b border-obsidian-border px-2 py-2">
+      <div className="mx-auto flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleBackToDashboard}
+            className="flex items-center gap-1.5 text-obsidian-text-secondary hover:text-obsidian-text-primary transition-colors"
+          >
+            <Home className="w-3.5 h-3.5" />
+            <span className="text-sm font-medium">Projects</span>
+          </button>
+          {currentProject && (
+            <>
+              <span className="text-obsidian-text-muted text-xs">/</span>
+              <span className="text-obsidian-text-primary text-sm font-medium truncate max-w-xs">{currentProject.title}</span>
+            </>
+          )}
+        </div>
+
+        <div className="flex items-center gap-0.5">
+          {currentProject && (
+            <>
+              <button
+                onClick={() => setCurrentMode('home')}
+                className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+                  currentMode === 'home'
+                    ? 'bg-obsidian-accent-pale text-obsidian-accent-primary font-medium'
+                    : 'text-obsidian-text-secondary hover:text-obsidian-text-primary hover:bg-obsidian-bg'
+                }`}
+              >
+                <Target className="w-3 h-3" />
+                <span>Purpose</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  if (!purpose) {
+                    setCurrentMode('home');
+                  } else {
+                    setCurrentMode('writing');
+                  }
+                }}
+                className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+                  currentMode === 'writing'
+                    ? 'bg-obsidian-accent-pale text-obsidian-accent-primary font-medium'
+                    : 'text-obsidian-text-secondary hover:text-obsidian-text-primary hover:bg-obsidian-bg'
+                }`}
+                disabled={!purpose}
+              >
+                <Pen className="w-3 h-3" />
+                <span>Editor</span>
+              </button>
+
+              <button
+                onClick={() => setCurrentMode('inquiry')}
+                className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+                  currentMode === 'inquiry'
+                    ? 'bg-obsidian-accent-pale text-obsidian-accent-primary font-medium'
+                    : 'text-obsidian-text-secondary hover:text-obsidian-text-primary hover:bg-obsidian-bg'
+                }`}
+              >
+                <Target className="w-3 h-3" />
+                <span>Inquiry</span>
+              </button>
+
+              <button
+                onClick={() => setCurrentMode('personas')}
+                className={`flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors ${
+                  currentMode === 'personas'
+                    ? 'bg-obsidian-accent-pale text-obsidian-accent-primary font-medium'
+                    : 'text-obsidian-text-secondary hover:text-obsidian-text-primary hover:bg-obsidian-bg'
+                }`}
+              >
+                <Users className="w-3 h-3" />
+                <span>Animas</span>
+              </button>
+            </>
+          )}
+
+          <div className="h-4 w-px bg-obsidian-border mx-2"></div>
+
+          <div className="flex items-center gap-1.5 text-xs text-obsidian-text-muted">
+            <User className="w-3 h-3" />
+            <span className="max-w-[120px] truncate">{currentUser.displayName || currentUser.email}</span>
+          </div>
+
+          <button
+            onClick={handleLogout}
+            className="p-1 text-obsidian-text-muted hover:text-obsidian-text-primary hover:bg-obsidian-bg rounded transition-colors ml-1"
+            title="Sign out"
+          >
+            <LogOut className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      {currentMode !== 'dashboard' && renderNavigation()}
+      
+      <div className={currentMode !== 'dashboard' ? 'h-[calc(100vh-80px)]' : 'h-screen'}>
+        {currentMode === 'dashboard' ? (
+          <ProjectDashboard 
+            onSelectProject={handleSelectProject}
+            onCreateProject={handleCreateProject}
+          />
+        ) : currentMode === 'home' ? (
+          <PurposeStep
+            purpose={purpose}
+            setPurpose={setPurpose}
+            onSubmit={handlePurposeSubmit}
+          />
+        ) : currentMode === 'writing' ? (
+          <WritingInterface
+            purpose={purpose}
+            content={content}
+            onContentChange={setContent}
+            feedback={feedback}
+            setFeedback={setFeedback}
+            onBackToPurpose={handleBackToHome}
+            project={currentProject}
+            writingCriteria={writingCriteria}
+            isMonitoring={isMonitoring}
+            onToggleMonitoring={() => setIsMonitoring(!isMonitoring)}
+            onFeedbackGenerated={handleFeedbackGenerated}
+          />
+        ) : currentMode === 'personas' ? (
+          <PersonaManager />
+        ) : (
+          <InquiryComplexManager
+            content={content}
+            purpose={purpose}
+            project={currentProject}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
+}
+
+export default App;
