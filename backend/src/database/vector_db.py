@@ -46,10 +46,18 @@ class VectorDatabase:
 
         # Initialize Qdrant client
         try:
-            self.client = QdrantClient(
-                host=config.vector_db.host,
-                port=config.vector_db.port,
-            )
+            # Build client kwargs
+            client_kwargs = {
+                "host": config.vector_db.host,
+                "port": config.vector_db.port,
+            }
+
+            # Add API key if provided
+            if config.vector_db.api_key:
+                client_kwargs["api_key"] = config.vector_db.api_key
+                logger.info(f"Using Qdrant API key authentication")
+
+            self.client = QdrantClient(**client_kwargs)
 
             # Test connection by getting collections
             self.client.get_collections()
