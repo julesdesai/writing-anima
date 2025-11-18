@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 import uvicorn
 from typing import Optional
 import logging
+import os
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -35,12 +36,15 @@ app = FastAPI(
 )
 
 # CORS configuration for React frontend
+# Read allowed origins from environment variable
+allowed_origins_str = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000")
+allowed_origins = [origin.strip() for origin in allowed_origins_str.split(",")]
+
+logger.info(f"CORS allowed origins: {allowed_origins}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",  # React dev server
-        "http://localhost:5000",  # Production frontend
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
