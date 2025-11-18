@@ -25,17 +25,31 @@ router = APIRouter(prefix="/api/personas", tags=["personas"])
 # Initialize Firebase Admin
 import firebase_admin
 from firebase_admin import credentials, firestore
+import json
 
 # Initialize Firebase if not already done
 if not firebase_admin._apps:
-    # Get path from environment variable
-    cred_path = os.getenv("FIREBASE_ADMIN_SDK_PATH", "./firebase-admin-sdk.json")
-    if os.path.exists(cred_path):
-        cred = credentials.Certificate(cred_path)
-        firebase_admin.initialize_app(cred)
-        logger.info("Firebase Admin initialized successfully")
+    # Try to get credentials from environment variable (for Railway/production)
+    firebase_creds_json = os.getenv("FIREBASE_CREDENTIALS")
+
+    if firebase_creds_json:
+        # Load from JSON string (for deployment)
+        try:
+            cred_dict = json.loads(firebase_creds_json)
+            cred = credentials.Certificate(cred_dict)
+            firebase_admin.initialize_app(cred)
+            logger.info("Firebase Admin initialized from FIREBASE_CREDENTIALS environment variable")
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse FIREBASE_CREDENTIALS: {e}")
     else:
-        logger.warning(f"Firebase credentials not found at {cred_path}. Using in-memory storage.")
+        # Fall back to file path (for local development)
+        cred_path = os.getenv("FIREBASE_ADMIN_SDK_PATH", "./firebase-admin-sdk.json")
+        if os.path.exists(cred_path):
+            cred = credentials.Certificate(cred_path)
+            firebase_admin.initialize_app(cred)
+            logger.info("Firebase Admin initialized from file")
+        else:
+            logger.warning(f"Firebase credentials not found at {cred_path}. Using in-memory storage.")
 
 # Get Firestore client
 try:
