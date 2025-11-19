@@ -77,6 +77,8 @@ class AnimaService {
 
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(`${WS_URL}/api/analyze/stream`);
+      let feedbackReceived = 0;
+      let completionReceived = false;
 
       ws.onopen = () => {
         console.log('WebSocket connected');
@@ -107,10 +109,12 @@ class AnimaService {
               break;
 
             case 'feedback':
+              feedbackReceived++;
               onFeedback(message.item);
               break;
 
             case 'complete':
+              completionReceived = true;
               onComplete(message);
               ws.close();
               break;
@@ -131,12 +135,26 @@ class AnimaService {
 
       ws.onerror = (error) => {
         console.error('WebSocket error:', error);
-        onError(error);
-        reject(error);
+        // Only report error if we didn't receive any feedback
+        if (feedbackReceived === 0) {
+          onError(error);
+          reject(error);
+        } else {
+          console.log(`WebSocket error after receiving ${feedbackReceived} items, treating as partial success`);
+        }
       };
 
       ws.onclose = () => {
         console.log('WebSocket closed');
+        // If we got feedback but no completion message, treat as partial success
+        if (feedbackReceived > 0 && !completionReceived) {
+          console.log(`Stream closed after ${feedbackReceived} items without completion message`);
+          onComplete({
+            total_items: feedbackReceived,
+            processing_time: 0,
+            partial: true
+          });
+        }
       };
     });
   }

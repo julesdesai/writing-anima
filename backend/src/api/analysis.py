@@ -418,21 +418,38 @@ async def analyze_writing_stream(websocket: WebSocket):
 
         # Stream each feedback item
         for i, item in enumerate(feedback_items):
-            logger.info(f"Sending feedback item {i+1}/{len(feedback_items)}: {item.title}")
-            await websocket.send_json(
-                StreamFeedback(item=item).dict()
-            )
+            try:
+                # Check if connection is still open
+                if websocket.client_state.name != "CONNECTED":
+                    logger.warning(f"WebSocket disconnected before sending item {i+1}, stopping")
+                    return
+
+                logger.info(f"Sending feedback item {i+1}/{len(feedback_items)}: {item.title}")
+                await websocket.send_json(
+                    StreamFeedback(item=item).dict()
+                )
+                logger.debug(f"Successfully sent item {i+1}")
+            except Exception as e:
+                logger.error(f"Error sending feedback item {i+1}: {e}, stopping stream")
+                return
 
         # Send completion
-        processing_time = time.time() - start_time
-        await websocket.send_json(
-            StreamComplete(
-                total_items=len(feedback_items),
-                processing_time=processing_time
-            ).dict()
-        )
-
-        await websocket.close()
+        try:
+            if websocket.client_state.name == "CONNECTED":
+                processing_time = time.time() - start_time
+                logger.info(f"Sending completion message")
+                await websocket.send_json(
+                    StreamComplete(
+                        total_items=len(feedback_items),
+                        processing_time=processing_time
+                    ).dict()
+                )
+                await websocket.close()
+                logger.info("Stream completed successfully")
+            else:
+                logger.warning("WebSocket disconnected before completion message")
+        except Exception as e:
+            logger.error(f"Error sending completion: {e}")
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected by client")
