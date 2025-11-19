@@ -46,16 +46,35 @@ class VectorDatabase:
 
         # Initialize Qdrant client
         try:
-            # Build client kwargs
-            client_kwargs = {
-                "host": config.vector_db.host,
-                "port": config.vector_db.port,
-            }
+            # Check if we're using a cloud URL (has https:// or contains cloud.qdrant.io)
+            host = config.vector_db.host
+            is_cloud = host.startswith("https://") or "cloud.qdrant.io" in host
 
-            # Add API key if provided
-            if config.vector_db.api_key:
-                client_kwargs["api_key"] = config.vector_db.api_key
-                logger.info(f"Using Qdrant API key authentication")
+            if is_cloud:
+                # For Qdrant Cloud, use URL parameter with HTTPS
+                # Construct full URL if not already complete
+                if not host.startswith("https://"):
+                    url = f"https://{host}:{config.vector_db.port}"
+                else:
+                    url = host
+
+                client_kwargs = {
+                    "url": url,
+                    "api_key": config.vector_db.api_key,
+                    "https": True,  # Force HTTPS
+                }
+                logger.info(f"Connecting to Qdrant Cloud at {url}")
+            else:
+                # For local Qdrant, use host/port
+                client_kwargs = {
+                    "host": host,
+                    "port": config.vector_db.port,
+                }
+
+                # Add API key if provided
+                if config.vector_db.api_key:
+                    client_kwargs["api_key"] = config.vector_db.api_key
+                    logger.info(f"Using Qdrant API key authentication")
 
             self.client = QdrantClient(**client_kwargs)
 
