@@ -1,7 +1,6 @@
 # Environment variables
 .env
 .env.local
-.env.production
 .env.*.local
 
 # Python
@@ -26,7 +25,6 @@ yarn-error.log*
 
 # React build
 frontend/build/
-frontend/.env.production
 
 # IDEs
 .vscode/
