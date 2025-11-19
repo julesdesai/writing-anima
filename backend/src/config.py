@@ -63,12 +63,12 @@ class VectorDBConfig(BaseModel):
 
     def __init__(self, **data):
         """Override with environment variables if present"""
-        # Check for environment variables and override
-        if "host" not in data and os.getenv("QDRANT_HOST"):
+        # Environment variables always take precedence over config file
+        if os.getenv("QDRANT_HOST"):
             data["host"] = os.getenv("QDRANT_HOST")
-        if "port" not in data and os.getenv("QDRANT_PORT"):
+        if os.getenv("QDRANT_PORT"):
             data["port"] = int(os.getenv("QDRANT_PORT"))
-        if "api_key" not in data and os.getenv("QDRANT_API_KEY"):
+        if os.getenv("QDRANT_API_KEY"):
             data["api_key"] = os.getenv("QDRANT_API_KEY")
         super().__init__(**data)
 
