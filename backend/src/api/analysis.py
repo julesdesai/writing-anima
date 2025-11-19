@@ -419,11 +419,6 @@ async def analyze_writing_stream(websocket: WebSocket):
         # Stream each feedback item
         for i, item in enumerate(feedback_items):
             try:
-                # Check if connection is still open
-                if websocket.client_state.name != "CONNECTED":
-                    logger.warning(f"WebSocket disconnected before sending item {i+1}, stopping")
-                    return
-
                 logger.info(f"Sending feedback item {i+1}/{len(feedback_items)}: {item.title}")
                 await websocket.send_json(
                     StreamFeedback(item=item).dict()
@@ -435,19 +430,16 @@ async def analyze_writing_stream(websocket: WebSocket):
 
         # Send completion
         try:
-            if websocket.client_state.name == "CONNECTED":
-                processing_time = time.time() - start_time
-                logger.info(f"Sending completion message")
-                await websocket.send_json(
-                    StreamComplete(
-                        total_items=len(feedback_items),
-                        processing_time=processing_time
-                    ).dict()
-                )
-                await websocket.close()
-                logger.info("Stream completed successfully")
-            else:
-                logger.warning("WebSocket disconnected before completion message")
+            processing_time = time.time() - start_time
+            logger.info(f"Sending completion message")
+            await websocket.send_json(
+                StreamComplete(
+                    total_items=len(feedback_items),
+                    processing_time=processing_time
+                ).dict()
+            )
+            await websocket.close()
+            logger.info("Stream completed successfully")
         except Exception as e:
             logger.error(f"Error sending completion: {e}")
 
