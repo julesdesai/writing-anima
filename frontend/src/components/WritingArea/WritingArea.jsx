@@ -6,11 +6,10 @@ import '@uiw/react-markdown-preview/markdown.css';
 
 const WritingArea = ({ content, onContentChange, autoFocus = false, feedback = [], hoveredFeedback = null }) => {
   const editorRef = useRef(null);
-  const [isEditorFocused, setIsEditorFocused] = useState(false);
+  const textareaRef = useRef(null);
+  const highlightOverlayRef = useRef(null);
   const [currentPositionIndex, setCurrentPositionIndex] = useState(0);
   const cycleIntervalRef = useRef(null);
-  const isUpdatingFromProps = useRef(false);
-  const lastContentRef = useRef(''); // Initialize empty to force initial render
 
   // Memoize highlights to prevent recalculation on every render
   const highlights = useMemo(() => {
@@ -80,6 +79,32 @@ const WritingArea = ({ content, onContentChange, autoFocus = false, feedback = [
     return result.sort((a, b) => a.start - b.start);
   }, [content, feedback, hoveredFeedback, currentPositionIndex]);
 
+  // Get textarea reference after MDEditor mounts
+  useEffect(() => {
+    if (editorRef.current) {
+      const textarea = editorRef.current.querySelector('.w-md-editor-text-input');
+      if (textarea) {
+        textareaRef.current = textarea;
+      }
+    }
+  }, []);
+
+  // Sync overlay scroll with textarea scroll
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    const overlay = highlightOverlayRef.current;
+
+    if (!textarea || !overlay) return;
+
+    const handleScroll = () => {
+      overlay.scrollTop = textarea.scrollTop;
+      overlay.scrollLeft = textarea.scrollLeft;
+    };
+
+    textarea.addEventListener('scroll', handleScroll);
+    return () => textarea.removeEventListener('scroll', handleScroll);
+  }, []);
+
   // Auto-scroll to highlighted feedback when hovered
   useEffect(() => {
     if (cycleIntervalRef.current) {
@@ -87,11 +112,9 @@ const WritingArea = ({ content, onContentChange, autoFocus = false, feedback = [
       cycleIntervalRef.current = null;
     }
 
-    if (hoveredFeedback && editorRef.current) {
+    if (hoveredFeedback && textareaRef.current) {
       const hoveredFeedbackData = feedback.find(f => f.id === hoveredFeedback);
       if (hoveredFeedbackData) {
-        const editor = editorRef.current;
-
         let positions;
         if (hoveredFeedbackData.positions && hoveredFeedbackData.positions.length > 0) {
           positions = hoveredFeedbackData.positions;
@@ -104,12 +127,15 @@ const WritingArea = ({ content, onContentChange, autoFocus = false, feedback = [
 
           const scrollToPosition = (positionIndex) => {
             const targetPosition = positions[positionIndex];
-            if (targetPosition) {
-              // Find the highlight element
-              const highlightEl = editor.querySelector(`[data-feedback-id="${hoveredFeedback}"][data-position-index="${positionIndex}"]`);
-              if (highlightEl) {
-                highlightEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-              }
+            if (targetPosition && textareaRef.current) {
+              // Calculate approximate line to scroll to
+              const textBeforeHighlight = content.substring(0, targetPosition.start);
+              const lines = textBeforeHighlight.split('\n');
+              const lineNumber = lines.length;
+              const lineHeight = 24; // Approximate line height
+              const scrollPosition = (lineNumber - 1) * lineHeight;
+
+              textareaRef.current.scrollTop = Math.max(0, scrollPosition - 100);
             }
           };
 
@@ -135,150 +161,121 @@ const WritingArea = ({ content, onContentChange, autoFocus = false, feedback = [
         cycleIntervalRef.current = null;
       }
     };
-  }, [hoveredFeedback, feedback]);
+  }, [hoveredFeedback, feedback, content]);
 
   useEffect(() => {
     if (autoFocus && editorRef.current) {
-      editorRef.current.focus();
+      const textarea = editorRef.current.querySelector('.w-md-editor-text-input');
+      if (textarea) {
+        textarea.focus();
+      }
     }
   }, [autoFocus]);
 
-  // Handle content changes from contenteditable
-  const handleInput = useCallback((e) => {
-    if (!isUpdatingFromProps.current) {
-      const newContent = e.target.innerText;
-      lastContentRef.current = newContent;
-      onContentChange(newContent);
-    }
-  }, [onContentChange]);
+  // Render highlight overlays based on character positions
+  const renderHighlightOverlays = useCallback(() => {
+    if (!content || highlights.length === 0) return null;
 
-  // Update editor content when prop changes (but preserve cursor position)
-  useEffect(() => {
-    if (editorRef.current && content !== lastContentRef.current) {
-      isUpdatingFromProps.current = true;
+    const lines = content.split('\n');
+    const elements = [];
 
-      const editor = editorRef.current;
-      const selection = window.getSelection();
-      let cursorPosition = 0;
+    highlights.forEach((highlight, idx) => {
+      // Calculate line and column positions
+      let currentPos = 0;
+      let startLine = 0;
+      let startCol = 0;
+      let endLine = 0;
+      let endCol = 0;
 
-      // Save cursor position
-      if (selection.rangeCount > 0 && editor.contains(selection.anchorNode)) {
-        const range = selection.getRangeAt(0);
-        const preCaretRange = range.cloneRange();
-        preCaretRange.selectNodeContents(editor);
-        preCaretRange.setEnd(range.endContainer, range.endOffset);
-        cursorPosition = preCaretRange.toString().length;
+      // Find start position
+      for (let i = 0; i < lines.length; i++) {
+        const lineLength = lines[i].length + 1; // +1 for newline
+        if (currentPos + lineLength > highlight.start) {
+          startLine = i;
+          startCol = highlight.start - currentPos;
+          break;
+        }
+        currentPos += lineLength;
       }
 
-      // Update content
-      renderContent();
-      lastContentRef.current = content;
+      // Find end position
+      currentPos = 0;
+      for (let i = 0; i < lines.length; i++) {
+        const lineLength = lines[i].length + 1;
+        if (currentPos + lineLength >= highlight.end) {
+          endLine = i;
+          endCol = highlight.end - currentPos;
+          break;
+        }
+        currentPos += lineLength;
+      }
 
-      // Restore cursor position
-      if (cursorPosition > 0) {
-        try {
-          const textNodes = getTextNodes(editor);
-          let currentPos = 0;
+      // Create highlight spans for each line the highlight covers
+      for (let line = startLine; line <= endLine; line++) {
+        const lineText = lines[line];
+        const colStart = line === startLine ? startCol : 0;
+        const colEnd = line === endLine ? endCol : lineText.length;
+        const highlightText = lineText.substring(colStart, colEnd);
 
-          for (const node of textNodes) {
-            const nodeLength = node.textContent.length;
-            if (currentPos + nodeLength >= cursorPosition) {
-              const range = document.createRange();
-              const offset = Math.min(cursorPosition - currentPos, nodeLength);
-              range.setStart(node, offset);
-              range.collapse(true);
-              selection.removeAllRanges();
-              selection.addRange(range);
-              break;
-            }
-            currentPos += nodeLength;
-          }
-        } catch (e) {
-          // Cursor restoration failed, just place at end
-          const range = document.createRange();
-          range.selectNodeContents(editor);
-          range.collapse(false);
-          selection.removeAllRanges();
-          selection.addRange(range);
+        if (highlightText.length > 0) {
+          const width = highlightText.length * 8.4; // Approximate character width
+          elements.push(
+            <div
+              key={`${highlight.id}-${highlight.positionIndex}-${line}`}
+              className={getHighlightClass(highlight.type, highlight.severity, highlight.isHovered, highlight.isCurrentPosition)}
+              data-feedback-id={highlight.id}
+              data-position-index={highlight.positionIndex}
+              style={{
+                position: 'absolute',
+                top: `${line * 24}px`,
+                left: `${colStart * 8.4}px`,
+                width: `${width}px`,
+                height: '24px',
+                pointerEvents: 'none',
+              }}
+            />
+          );
         }
       }
+    });
 
-      isUpdatingFromProps.current = false;
-    }
-  }, [content, highlights]);
-
-  // Helper function to get all text nodes
-  const getTextNodes = (element) => {
-    const textNodes = [];
-    const walk = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null, false);
-    let node;
-    while ((node = walk.nextNode())) {
-      textNodes.push(node);
-    }
-    return textNodes;
-  };
-
-  // Render content with highlights into the editor
-  const renderContent = useCallback(() => {
-    if (!editorRef.current) return;
-
-    const editor = editorRef.current;
-    const fragment = document.createDocumentFragment();
-
-    if (highlights.length === 0) {
-      // No highlights, just render plain text
-      fragment.appendChild(document.createTextNode(content || ''));
-    } else {
-      // Render with highlights
-      let lastIndex = 0;
-
-      highlights.forEach((highlight, idx) => {
-        // Add text before highlight
-        if (highlight.start > lastIndex) {
-          fragment.appendChild(document.createTextNode(content.slice(lastIndex, highlight.start)));
-        }
-
-        // Add highlighted text
-        const mark = document.createElement('mark');
-        mark.className = getHighlightClass(highlight.type, highlight.severity, highlight.isHovered, highlight.isCurrentPosition);
-        mark.setAttribute('data-feedback-id', highlight.id);
-        mark.setAttribute('data-position-index', highlight.positionIndex);
-        mark.textContent = highlight.text;
-        fragment.appendChild(mark);
-
-        lastIndex = highlight.end;
-      });
-
-      // Add remaining text
-      if (lastIndex < content.length) {
-        fragment.appendChild(document.createTextNode(content.slice(lastIndex)));
-      }
-    }
-
-    // Replace editor content
-    editor.innerHTML = '';
-    editor.appendChild(fragment);
+    return elements;
   }, [content, highlights]);
 
   const getHighlightClass = (type, severity, isHovered, isCurrentPosition) => {
-    const baseClasses = 'relative rounded px-1 transition-all duration-300';
-    const typeClasses = {
-      intellectual: 'bg-purple-100/40 border-b-2 border-purple-400/50',
-      stylistic: 'bg-blue-100/40 border-b-2 border-blue-400/50',
-      inquiry_integration: 'bg-green-100/40 border-b-2 border-green-400/50',
-      complex_suggestion: 'bg-green-100/40 border-b-2 border-green-400/50',
-      complex_insight: 'bg-yellow-100/40 border-b-2 border-yellow-400/50',
-      framework_connection: 'bg-obsidian-accent-pale/40 border-b-2 border-obsidian-accent-light'
-    };
-    const severityClasses = {
-      high: 'bg-opacity-70 shadow-obsidian',
-      medium: 'bg-opacity-50 shadow-obsidian-sm',
-      low: 'bg-opacity-30'
-    };
-    const hoverClasses = isHovered ? 'bg-opacity-90 shadow-obsidian-md scale-105 z-10 ring-2 ring-obsidian-accent-light ring-opacity-50' : '';
-    const currentPositionClasses = isCurrentPosition ? 'ring-4 ring-obsidian-warning ring-opacity-75 animate-pulse' : '';
+    const baseClasses = 'rounded transition-all duration-300';
 
-    return `${baseClasses} ${typeClasses[type] || typeClasses.intellectual} ${severityClasses[severity] || severityClasses.medium} ${hoverClasses} ${currentPositionClasses}`;
+    // Base type colors with proper opacity
+    const typeColors = {
+      intellectual: 'bg-purple-200',
+      stylistic: 'bg-blue-200',
+      inquiry_integration: 'bg-green-200',
+      complex_suggestion: 'bg-green-200',
+      complex_insight: 'bg-yellow-200',
+      framework_connection: 'bg-indigo-200'
+    };
+
+    // Opacity based on severity (always visible)
+    const severityOpacity = {
+      high: 'opacity-60',
+      medium: 'opacity-50',
+      low: 'opacity-40'
+    };
+
+    // Enhanced styling when hovered
+    const hoverClasses = isHovered
+      ? 'opacity-80 shadow-lg scale-105 ring-2 ring-offset-1 ring-purple-400'
+      : '';
+
+    // Pulsing animation for current position when hovering multi-position feedback
+    const currentPositionClasses = isCurrentPosition
+      ? 'ring-2 ring-yellow-400 animate-pulse'
+      : '';
+
+    const baseColor = typeColors[type] || typeColors.intellectual;
+    const baseOpacity = severityOpacity[severity] || severityOpacity.medium;
+
+    return `${baseClasses} ${baseColor} ${baseOpacity} ${hoverClasses} ${currentPositionClasses}`;
   };
 
   return (
@@ -287,12 +284,12 @@ const WritingArea = ({ content, onContentChange, autoFocus = false, feedback = [
         <h2 className="text-xs font-semibold text-obsidian-text-tertiary uppercase tracking-wide">Editor</h2>
       </div>
 
-      <div className="relative h-[calc(100%-36px)]" data-color-mode="dark">
+      <div className="relative h-[calc(100%-36px)]" data-color-mode="dark" ref={editorRef}>
         <MDEditor
           value={content}
           onChange={onContentChange}
           height="100%"
-          preview="live"
+          preview="edit"
           hideToolbar={false}
           visibleDragbar={false}
           style={{
@@ -301,11 +298,7 @@ const WritingArea = ({ content, onContentChange, autoFocus = false, feedback = [
             fontSize: '15px'
           }}
           textareaProps={{
-            placeholder: 'Start writing...',
-            style: {
-              fontSize: '15px',
-              lineHeight: '1.6'
-            }
+            placeholder: 'Start writing...'
           }}
           previewOptions={{
             style: {
@@ -363,8 +356,6 @@ const WritingArea = ({ content, onContentChange, autoFocus = false, feedback = [
           .w-md-editor-text-input {
             background: var(--obsidian-surface) !important;
             color: var(--obsidian-text-primary) !important;
-            font-size: 15px !important;
-            line-height: 1.6 !important;
           }
 
           .w-md-editor-preview {

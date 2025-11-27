@@ -21,12 +21,16 @@ function AppContent() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState('login');
   const [isMonitoring, setIsMonitoring] = useState(true); // Global monitoring state for agents
+  const [isProjectSwitching, setIsProjectSwitching] = useState(false); // Prevent auto-save during project switch
 
   // Auto-save project content and feedback
   useEffect(() => {
-    if (!currentProject || !currentUser) return;
-    
+    if (!currentProject || !currentUser || isProjectSwitching) return;
+
     const autoSaveInterval = setInterval(async () => {
+      // Skip auto-save during project switching to prevent race conditions
+      if (isProjectSwitching) return;
+
       const hasContentChanges = content !== currentProject.content;
       const hasFeedbackChanges = JSON.stringify(feedback) !== JSON.stringify(currentProject.feedback || []);
       
@@ -80,7 +84,7 @@ function AppContent() {
     }, 3000); // Auto-save every 3 seconds
 
     return () => clearInterval(autoSaveInterval);
-  }, [currentProject, currentUser, content, feedback, purpose, writingCriteria]);
+  }, [currentProject, currentUser, content, feedback, purpose, writingCriteria, isProjectSwitching]);
 
   const handleSelectProject = async (project) => {
     try {
@@ -92,6 +96,17 @@ function AppContent() {
 
       console.log('[App] Loading project:', project.id);
 
+      // Set flag to prevent auto-save during project switch
+      setIsProjectSwitching(true);
+
+      // Clear current state first to prevent race conditions
+      setFeedback([]);
+      setContent('');
+      setPurpose('');
+      setWritingCriteria(null);
+      inquiryComplexService.clearAll();
+
+      // Then load new project data
       setCurrentProject(project);
       setPurpose(project.purpose || '');
       setContent(project.content || '');
@@ -117,6 +132,9 @@ function AppContent() {
       
       setCurrentMode(project.purpose ? 'writing' : 'home');
       console.log('Project loaded successfully, mode set to:', project.purpose ? 'writing' : 'home');
+
+      // Clear switching flag after a brief delay to ensure all state updates have propagated
+      setTimeout(() => setIsProjectSwitching(false), 100);
     } catch (error) {
       console.error('Error in handleSelectProject:', error);
       // Still try to continue with basic project setup if project exists
@@ -129,6 +147,8 @@ function AppContent() {
         inquiryComplexService.clearAll(); // Clear complexes for error state
         setCurrentMode('home');
       }
+      // Clear switching flag on error as well
+      setIsProjectSwitching(false);
     }
   };
 
@@ -138,13 +158,21 @@ function AppContent() {
       return;
     }
 
-    setCurrentProject(project);
-    setPurpose('');
+    // Set flag to prevent auto-save during project creation
+    setIsProjectSwitching(true);
+
+    // Clear all state for new project
+    setFeedback([]);
     setContent('');
-    setFeedback([]); // Clear feedback for new project
-    setWritingCriteria(null); // Clear criteria for new project
-    inquiryComplexService.clearAll(); // Clear complexes for new project
+    setPurpose('');
+    setWritingCriteria(null);
+    inquiryComplexService.clearAll();
+
+    setCurrentProject(project);
     setCurrentMode('home');
+
+    // Clear switching flag after state updates
+    setTimeout(() => setIsProjectSwitching(false), 100);
   };
 
   const handlePurposeSubmit = async (purposeText) => {
@@ -173,19 +201,26 @@ function AppContent() {
     setCurrentMode(currentProject ? 'home' : 'dashboard');
   };
 
-  const handleBackToDashboard = () => {
+  const handleBackToDashboard = async () => {
+    // Set flag to prevent auto-save during transition
+    setIsProjectSwitching(true);
+
     // Save current project before going back
     if (currentProject && (content !== currentProject.content || purpose !== currentProject.purpose || JSON.stringify(feedback) !== JSON.stringify(currentProject.feedback || []))) {
-      projectService.updateProject(currentProject.id, {
-        content,
-        purpose,
-        feedback, // Save current feedback
-        title: typeof purpose === 'object' && purpose !== null 
-          ? (purpose.topic?.substring(0, 50) || currentProject.title)
-          : (purpose?.split('.')[0].substring(0, 50) || currentProject.title)
-      }).catch(error => console.error('Failed to save project:', error));
+      try {
+        await projectService.updateProject(currentProject.id, {
+          content,
+          purpose,
+          feedback, // Save current feedback
+          title: typeof purpose === 'object' && purpose !== null
+            ? (purpose.topic?.substring(0, 50) || currentProject.title)
+            : (purpose?.split('.')[0].substring(0, 50) || currentProject.title)
+        });
+      } catch (error) {
+        console.error('Failed to save project:', error);
+      }
     }
-    
+
     setCurrentMode('dashboard');
     setCurrentProject(null);
     setPurpose('');
@@ -193,6 +228,9 @@ function AppContent() {
     setFeedback([]); // Clear feedback when leaving project
     setWritingCriteria(null); // Clear criteria when leaving project
     inquiryComplexService.clearAll(); // Clear complexes when leaving project
+
+    // Clear switching flag after state cleared
+    setTimeout(() => setIsProjectSwitching(false), 100);
   };
 
   const handleLogout = async () => {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import WritingArea from '../WritingArea';
 import FeedbackPanel from '../FeedbackPanel';
 import PromptCustomizationPanel from '../PromptCustomization/PromptCustomizationPanel';
@@ -26,6 +26,7 @@ const WritingInterface = ({ purpose, content, onContentChange, feedback, setFeed
   const [selectedPersonaId, setSelectedPersonaId] = useState(null);
   const [analysisStatus, setAnalysisStatus] = useState(null);
   const [thoughtSteps, setThoughtSteps] = useState([]);
+  const isExecutingRef = useRef(false);
   
   // Legacy writing analysis hook - DISABLED (using flow-based agents only)
   const legacyAnalysis = useWritingAnalysis(content, purpose, false, writingCriteria); // Always disabled
@@ -107,7 +108,13 @@ const WritingInterface = ({ purpose, content, onContentChange, feedback, setFeed
   }, [currentUser]);
 
   // Handle Anima analysis with streaming
-  const handleExecuteFlowClick = async () => {
+  const handleExecuteFlowClick = useCallback(async () => {
+    // Prevent double-clicks using ref for immediate check
+    if (isExecutingRef.current) {
+      console.log('[WritingInterface] Already executing, ignoring click');
+      return;
+    }
+
     if (!selectedPersonaId) {
       alert('Please select an anima first. Go to the Animas tab to create one.');
       return;
@@ -118,6 +125,8 @@ const WritingInterface = ({ purpose, content, onContentChange, feedback, setFeed
       return;
     }
 
+    // Set loading state immediately and synchronously
+    isExecutingRef.current = true;
     setIsExecutingFlow(true);
     setAnalysisStatus('Initializing...');
     setThoughtSteps([]); // Clear previous thought steps
@@ -127,6 +136,8 @@ const WritingInterface = ({ purpose, content, onContentChange, feedback, setFeed
       contentLength: content.length,
       userId: currentUser.uid
     });
+
+    let statusClearTimeout = null;
 
     try {
       const selectedPersona = availablePersonas.find(p => p.id === selectedPersonaId);
@@ -189,9 +200,34 @@ const WritingInterface = ({ purpose, content, onContentChange, feedback, setFeed
             if (onFeedbackGenerated) {
               onFeedbackGenerated([enrichedItem]);
             }
+
+            // Clear any existing timeout
+            if (statusClearTimeout) {
+              clearTimeout(statusClearTimeout);
+            }
+
+            // Set timeout to clear status if completion message doesn't arrive
+            // This prevents status from hanging indefinitely
+            statusClearTimeout = setTimeout(() => {
+              console.log('[Anima] Clearing status (no completion message received)');
+              setAnalysisStatus(null);
+              isExecutingRef.current = false;
+              setIsExecutingFlow(false);
+            }, 5000); // 5 seconds after last feedback item
           },
           onComplete: (result) => {
             console.log('[Anima Complete]:', result);
+
+            // Clear the fallback timeout since we got completion
+            if (statusClearTimeout) {
+              clearTimeout(statusClearTimeout);
+              statusClearTimeout = null;
+            }
+
+            // Clear execution state immediately
+            isExecutingRef.current = false;
+            setIsExecutingFlow(false);
+
             setAnalysisStatus(`Complete! Generated ${result.total_items} feedback items in ${result.processing_time.toFixed(1)}s`);
 
             setTimeout(() => {
@@ -200,6 +236,17 @@ const WritingInterface = ({ purpose, content, onContentChange, feedback, setFeed
           },
           onError: (error) => {
             console.error('[Anima Error]:', error);
+
+            // Clear the fallback timeout on error
+            if (statusClearTimeout) {
+              clearTimeout(statusClearTimeout);
+              statusClearTimeout = null;
+            }
+
+            // Clear execution state
+            isExecutingRef.current = false;
+            setIsExecutingFlow(false);
+
             alert(`Analysis failed: ${error.message}`);
             setAnalysisStatus(null);
           }
@@ -210,10 +257,16 @@ const WritingInterface = ({ purpose, content, onContentChange, feedback, setFeed
       console.error('[WritingInterface] Anima analysis error:', error);
       alert(`Analysis error: ${error.message}`);
       setAnalysisStatus(null);
-    } finally {
+
+      // Clean up on catch
+      if (statusClearTimeout) {
+        clearTimeout(statusClearTimeout);
+      }
+      isExecutingRef.current = false;
       setIsExecutingFlow(false);
     }
-  };
+    // Note: Don't clear execution state in finally - callbacks are async and will handle cleanup
+  }, [selectedPersonaId, content, currentUser, purpose, writingCriteria, feedback, availablePersonas, onFeedbackGenerated]);
 
   // Choose which system to use based on feature flag
   // Sync feedback prop to local state for display

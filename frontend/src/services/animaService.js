@@ -134,18 +134,14 @@ class AnimaService {
       };
 
       ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        // Only report error if we didn't receive any feedback
-        if (feedbackReceived === 0) {
-          onError(error);
-          reject(error);
-        } else {
-          console.log(`WebSocket error after receiving ${feedbackReceived} items, treating as partial success`);
-        }
+        console.error('WebSocket error (may be transient during AI processing):', error);
+        // Don't immediately report errors - wait for onclose to determine if it's a real failure
+        // This prevents premature error alerts during long AI inference
       };
 
-      ws.onclose = () => {
-        console.log('WebSocket closed');
+      ws.onclose = (event) => {
+        console.log('WebSocket closed', { code: event.code, reason: event.reason });
+
         // If we got feedback but no completion message, treat as partial success
         if (feedbackReceived > 0 && !completionReceived) {
           console.log(`Stream closed after ${feedbackReceived} items without completion message`);
@@ -154,6 +150,12 @@ class AnimaService {
             processing_time: 0,
             partial: true
           });
+        }
+        // Only report error if connection closed abnormally with NO feedback received
+        else if (feedbackReceived === 0 && event.code !== 1000) {
+          console.error('WebSocket closed without receiving any feedback');
+          onError(new Error('Connection closed without receiving feedback. Backend may be down.'));
+          reject(new Error('Connection failed'));
         }
       };
     });
