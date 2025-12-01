@@ -44,7 +44,13 @@ You MUST provide feedback as a JSON array. Each feedback item should have:
   "content": "Detailed, actionable feedback grounded in corpus examples (2-4 sentences)",
   "severity": "low" | "medium" | "high",
   "confidence": 0.0-1.0 (how strongly this is supported by corpus),
-  "corpus_references": ["chunk_id_1", "chunk_id_2"] (IDs of relevant corpus chunks),
+  "corpus_sources": [
+    {
+      "text": "Actual quote from corpus (50-150 chars) that grounds this feedback",
+      "source_file": "filename or source type if known",
+      "relevance": "Brief explanation of why this source supports the feedback"
+    }
+  ] (REQUIRED: include 1-3 actual passages from corpus that ground this feedback),
   "text_positions": [
     {
       "start": <character_index>,
@@ -155,15 +161,21 @@ BAD (vague):
   "text_positions": []
 }
 
-GOOD (specific and actionable with text positions):
+GOOD (specific and actionable with text positions and corpus sources):
 {
   "type": "suggestion",
   "category": "clarity",
   "title": "Dense opening sentence obscures main claim",
-  "content": "The sentence 'While numerous perspectives...' front-loads too many qualifications. In your blog posts, you typically state claims directly first, THEN qualify. For example, in [post X]: 'AI alignment is hard. Not because...' Consider: 'The problem is interpretability. While numerous perspectives...'",
+  "content": "The sentence 'While numerous perspectives...' front-loads too many qualifications. In your blog posts, you typically state claims directly first, THEN qualify. Consider: 'The problem is interpretability. While numerous perspectives...'",
   "severity": "medium",
   "confidence": 0.85,
-  "corpus_references": ["chunk_42", "chunk_89"],
+  "corpus_sources": [
+    {
+      "text": "AI alignment is hard. Not because we don't know what we want, but because...",
+      "source_file": "blog_post_alignment.md",
+      "relevance": "Shows your pattern of stating claims directly before qualifying"
+    }
+  ],
   "text_positions": [
     {
       "start": 0,
@@ -223,10 +235,16 @@ Example:
     "type": "issue",
     "category": "clarity",
     "title": "Ambiguous pronoun reference in paragraph 2",
-    "content": "The pronoun 'it' in 'it demonstrates the problem' could refer to either the system or the methodology. In your technical writing, you consistently avoid such ambiguity by repeating the noun. See [chunk_X] where you write 'the system demonstrates' rather than 'it demonstrates'.",
+    "content": "The pronoun 'it' in 'it demonstrates the problem' could refer to either the system or the methodology. In your technical writing, you consistently avoid such ambiguity by repeating the noun.",
     "severity": "high",
     "confidence": 0.9,
-    "corpus_references": ["chunk_23", "chunk_67"],
+    "corpus_sources": [
+      {
+        "text": "The neural network processes inputs through multiple layers. The network then outputs...",
+        "source_file": "technical_doc.md",
+        "relevance": "Shows your pattern of repeating nouns instead of using ambiguous pronouns"
+      }
+    ],
     "text_positions": [
       {
         "start": 145,
@@ -239,10 +257,16 @@ Example:
     "type": "praise",
     "category": "craft",
     "title": "Effective use of concrete example in opening",
-    "content": "The opening example of the chess AI is vivid and immediately engaging. This matches your pattern in blog posts of starting with specific, relatable scenarios before abstracting. Well executed.",
+    "content": "The opening example of the chess AI is vivid and immediately engaging. This matches your pattern of starting with specific, relatable scenarios before abstracting. Well executed.",
     "severity": "low",
     "confidence": 0.85,
-    "corpus_references": ["chunk_45", "chunk_91"],
+    "corpus_sources": [
+      {
+        "text": "Imagine you're teaching a child to recognize cats. You don't start with abstract features...",
+        "source_file": "blog_ml_intro.md",
+        "relevance": "Another example of your effective use of concrete scenarios to open discussions"
+      }
+    ],
     "text_positions": [
       {
         "start": 0,

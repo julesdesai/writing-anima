@@ -4,10 +4,12 @@ import PersonaCard from './PersonaCard';
 import CreatePersonaModal from './CreatePersonaModal';
 import CorpusUploadModal from './CorpusUploadModal';
 import { useAuth } from '../../contexts/AuthContext';
+import animaService from '../../services/animaService';
 
 const PersonaManager = () => {
   const { currentUser } = useAuth();
   const [personas, setPersonas] = useState([]);
+  const [availableModels, setAvailableModels] = useState([]);
   const [selectedPersona, setSelectedPersona] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -45,6 +47,31 @@ const PersonaManager = () => {
   useEffect(() => {
     loadPersonas();
   }, [loadPersonas]);
+
+  // Load available models on mount
+  useEffect(() => {
+    animaService.getAvailableModels()
+      .then(models => setAvailableModels(models))
+      .catch(err => {
+        console.error('Error loading models:', err);
+        // Fallback models
+        setAvailableModels([
+          { id: 'gpt-5', name: 'GPT-5', provider: 'openai', description: 'OpenAI\'s most advanced model' },
+          { id: 'kimi-k2', name: 'Kimi K2', provider: 'moonshot', description: 'Moonshot\'s flagship model' }
+        ]);
+      });
+  }, []);
+
+  const handleModelChange = async (personaId, newModel) => {
+    try {
+      const updated = await animaService.updatePersona(personaId, currentUser.uid, { model: newModel });
+      setPersonas(prev => prev.map(p => p.id === personaId ? { ...p, model: newModel } : p));
+    } catch (err) {
+      console.error('Error updating model:', err);
+      alert('Failed to update model: ' + err.message);
+      throw err;
+    }
+  };
 
   const handleCreatePersona = async (personaData) => {
     try {
@@ -178,6 +205,8 @@ const PersonaManager = () => {
                 persona={persona}
                 onUpload={handleUploadCorpus}
                 onDelete={handleDeletePersona}
+                onModelChange={handleModelChange}
+                availableModels={availableModels}
               />
             ))}
           </div>

@@ -37,13 +37,23 @@ class ModelSpecificConfig(BaseModel):
     max_iterations: int = 20
 
 
+class AvailableModelConfig(BaseModel):
+    """Configuration for a model available in the UI"""
+    id: str
+    name: str
+    provider: str
+    description: str
+
+
 class ModelConfig(BaseModel):
     """Model configuration"""
     primary: str
     fallback: str
+    available_models: List[AvailableModelConfig] = Field(default_factory=list)
     openai: ModelSpecificConfig
     claude: ModelSpecificConfig
     deepseek: ModelSpecificConfig
+    moonshot: ModelSpecificConfig = Field(default_factory=ModelSpecificConfig)
     hermes: ModelSpecificConfig
 
 

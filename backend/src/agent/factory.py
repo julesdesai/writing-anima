@@ -7,6 +7,7 @@ from .base import BaseAgent
 from .claude_agent import ClaudeAgent
 from .deepseek_agent import DeepSeekAgent
 from .hermes_agent import HermesAgent
+from .moonshot_agent import MoonshotAgent
 from .openai_agent import OpenAIAgent
 from ..config import get_config, Config
 
@@ -67,6 +68,15 @@ class AgentFactory:
                 persona_id=persona_id,
                 config=config,
                 model=model_name if model_name.startswith("deepseek") else config.model.deepseek.model,
+            )
+
+        # Moonshot / Kimi
+        elif "moonshot" in model_name_lower or "kimi" in model_name_lower:
+            logger.info(f"Creating MoonshotAgent for persona: {persona.name}")
+            return MoonshotAgent(
+                persona_id=persona_id,
+                config=config,
+                model=model_name if model_name.startswith("moonshot") else config.model.moonshot.model,
             )
 
         # Hermes

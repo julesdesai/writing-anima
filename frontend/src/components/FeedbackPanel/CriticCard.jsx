@@ -259,6 +259,50 @@ const CriticCard = ({ feedback, onDismiss, onMarkResolved, onCreateComplex, onAp
         </div>
       )}
 
+      {/* Show corpus sources that ground this feedback */}
+      {feedbackData.corpus_sources && feedbackData.corpus_sources.length > 0 ? (
+        <div className="mt-2 space-y-1.5">
+          <div className="text-xs text-obsidian-text-muted mono flex items-center gap-1">
+            <BookOpen className="w-3 h-3" />
+            <span>Grounded in corpus:</span>
+          </div>
+          {feedbackData.corpus_sources.map((source, idx) => (
+            <div
+              key={idx}
+              className="p-2 bg-purple-50/50 rounded border border-purple-200 text-xs"
+            >
+              <div className="text-obsidian-text-primary italic leading-tight mb-1">
+                "{source.text.length > 120 ? source.text.substring(0, 120) + '...' : source.text}"
+              </div>
+              <div className="flex items-center gap-2 text-obsidian-text-muted">
+                {source.source_file && (
+                  <span className="mono text-purple-600">{source.source_file}</span>
+                )}
+                {source.relevance && (
+                  <span className="text-obsidian-text-tertiary">{source.relevance}</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : feedbackData.sources && feedbackData.sources.length > 0 && (
+        /* Fallback: display old-format sources as simple list */
+        <div className="mt-2 space-y-1">
+          <div className="text-xs text-obsidian-text-muted mono flex items-center gap-1">
+            <BookOpen className="w-3 h-3" />
+            <span>Corpus references:</span>
+          </div>
+          <div className="p-2 bg-purple-50/50 rounded border border-purple-200 text-xs space-y-1">
+            {feedbackData.sources.map((source, idx) => (
+              <div key={idx} className="text-obsidian-text-primary leading-tight">
+                <span className="text-purple-600 mr-1">{idx + 1}.</span>
+                {source}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {feedbackData.suggestion && (
         <div className={`mt-2 p-2 bg-obsidian-surface rounded border-l-2 ${
           feedbackData.status === 'resolved' ? 'border-green-400' :

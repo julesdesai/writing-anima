@@ -29,6 +29,7 @@ class PersonaCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     user_id: str = Field(..., description="Firebase UID")
+    model: str = Field(default="gpt-5", description="LLM model ID for this persona")
 
 
 class PersonaResponse(BaseModel):
@@ -38,10 +39,31 @@ class PersonaResponse(BaseModel):
     description: Optional[str]
     user_id: str
     collection_name: str
+    model: str = "gpt-5"
     corpus_file_count: int = 0
     chunk_count: int = 0
     created_at: datetime
     updated_at: datetime
+
+
+class PersonaUpdate(BaseModel):
+    """Request model for updating a persona"""
+    name: Optional[str] = Field(None, min_length=1, max_length=100)
+    description: Optional[str] = Field(None, max_length=500)
+    model: Optional[str] = Field(None, description="LLM model ID for this persona")
+
+
+class AvailableModel(BaseModel):
+    """Model available for selection"""
+    id: str
+    name: str
+    provider: str
+    description: str
+
+
+class AvailableModelsResponse(BaseModel):
+    """Response containing available models"""
+    models: List[AvailableModel]
 
 
 class PersonaList(BaseModel):
@@ -101,6 +123,13 @@ class TextPosition(BaseModel):
     text: str  # The actual text being referenced
 
 
+class CorpusSource(BaseModel):
+    """A source passage from the corpus that grounds feedback"""
+    text: str  # The actual text from the corpus
+    source_file: Optional[str] = None  # Source file name
+    relevance: Optional[str] = None  # Why this source is relevant
+
+
 class FeedbackItem(BaseModel):
     """Single feedback item"""
     id: str
@@ -110,7 +139,8 @@ class FeedbackItem(BaseModel):
     content: str
     severity: FeedbackSeverity
     confidence: float = Field(..., ge=0.0, le=1.0)
-    sources: List[str] = Field(default_factory=list)  # Corpus chunks used
+    sources: List[str] = Field(default_factory=list)  # Corpus chunk IDs (deprecated)
+    corpus_sources: List[CorpusSource] = Field(default_factory=list)  # Actual corpus passages
     position: Optional[int] = None  # Deprecated: use positions instead
     positions: List[TextPosition] = Field(default_factory=list)  # Text positions for highlighting
 

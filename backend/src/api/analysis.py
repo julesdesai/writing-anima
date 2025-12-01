@@ -130,6 +130,19 @@ def parse_json_feedback(response_text: str, persona_name: str) -> List[FeedbackI
                                 text=pos['text']
                             ))
 
+                # For corpus_sources field - actual quoted passages from corpus
+                raw_corpus_sources = item.get('corpus_sources') or []
+                corpus_sources = []
+                if isinstance(raw_corpus_sources, list):
+                    for src in raw_corpus_sources:
+                        if isinstance(src, dict) and 'text' in src:
+                            from .models import CorpusSource
+                            corpus_sources.append(CorpusSource(
+                                text=src.get('text', ''),
+                                source_file=src.get('source_file'),
+                                relevance=src.get('relevance')
+                            ))
+
                 # Validate and create FeedbackItem
                 feedback_items.append(
                     FeedbackItem(
@@ -141,6 +154,7 @@ def parse_json_feedback(response_text: str, persona_name: str) -> List[FeedbackI
                         severity=FeedbackSeverity(item.get('severity', 'medium')),
                         confidence=float(item.get('confidence', 0.7)),
                         sources=sources if isinstance(sources, list) else [],
+                        corpus_sources=corpus_sources,
                         position=item.get('position'),
                         positions=positions
                     )
@@ -200,15 +214,19 @@ async def analyze_writing(request: AnalysisRequest):
             )
             config.personas[request.persona_id] = persona_config
 
-        # Create agent with JSON mode and writing critic prompt
-        from ..agent.openai_agent import OpenAIAgent
-        agent = OpenAIAgent(
+        # Get the model from persona settings, fallback to config primary
+        selected_model = persona.get("model", config.model.primary)
+        logger.info(f"Using model: {selected_model} for persona: {persona['name']}")
+
+        # Create agent using factory with persona's selected model
+        agent = AgentFactory.create(
+            model_name=selected_model,
             persona_id=request.persona_id,
             config=config,
-            model=config.model.primary,
-            use_json_mode=True,
-            prompt_file="writing_critic.txt"
         )
+        # Set JSON mode and prompt file for structured feedback
+        agent.use_json_mode = True
+        agent.prompt_file = "writing_critic.txt"
 
         # Build analysis query with context
         query = f"Please analyze the following writing"
@@ -328,20 +346,24 @@ async def analyze_writing_stream(websocket: WebSocket):
             )
             config.personas[request.persona_id] = persona_config
 
-        # Create agent with JSON mode and writing critic prompt
-        from ..agent.openai_agent import OpenAIAgent
-        agent = OpenAIAgent(
+        # Get the model from persona settings, fallback to config primary
+        selected_model = persona.get("model", config.model.primary)
+        logger.info(f"Using model: {selected_model} for persona: {persona['name']}")
+
+        # Create agent using factory with persona's selected model
+        agent = AgentFactory.create(
+            model_name=selected_model,
             persona_id=request.persona_id,
             config=config,
-            model=config.model.primary,
-            use_json_mode=True,
-            prompt_file="writing_critic.txt"
         )
+        # Set JSON mode and prompt file for structured feedback
+        agent.use_json_mode = True
+        agent.prompt_file = "writing_critic.txt"
 
         # Send status
         await websocket.send_json(
             StreamStatus(
-                message="Agent ready, starting analysis...",
+                message=f"Agent ready ({selected_model}), starting analysis...",
                 progress=0.2
             ).dict()
         )

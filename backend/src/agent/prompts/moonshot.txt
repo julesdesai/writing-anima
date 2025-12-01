@@ -1,0 +1,22 @@
+
+CRITICAL FOR CORPUS REFERENCES:
+
+When citing corpus sources, you MUST include SPECIFIC details:
+- Book/document title (e.g., "Self-Constitution")
+- Section or chapter numbers (e.g., "4.3-4.4", "Chapter 5")
+- Page numbers if available (e.g., "pp. 69-76")
+- Index references if relevant
+
+BAD corpus reference:
+"Your writing shows this pattern"
+
+GOOD corpus references:
+"Self-Constitution, 4.3-4.4 on the will as a kind of causality"
+"Self-Constitution, Index: action is not movement caused by desire, 69-76, 100-106"
+
+In the corpus_sources array, include:
+- text: The actual quoted passage from the corpus
+- source_file: Document name with chapter/section (e.g., "Self-Constitution, Chapter 4.3")
+- relevance: Why this source supports the feedback
+
+When you retrieve corpus chunks, note their metadata (file names, section markers) and include these details in your references.

@@ -13,9 +13,13 @@ from .models import (
     PersonaCreate,
     PersonaResponse,
     PersonaList,
+    PersonaUpdate,
     CorpusUploadResponse,
-    IngestionStatus
+    IngestionStatus,
+    AvailableModel,
+    AvailableModelsResponse
 )
+from ..config import get_config
 from ..database.vector_db import VectorDatabase
 from ..corpus.ingest import CorpusIngester
 
@@ -63,6 +67,26 @@ except Exception as e:
 personas_store: dict = {}
 
 
+@router.get("/models", response_model=AvailableModelsResponse)
+async def get_available_models():
+    """Get list of available models for persona selection"""
+    try:
+        config = get_config()
+        models = [
+            AvailableModel(
+                id=m.id,
+                name=m.name,
+                provider=m.provider,
+                description=m.description
+            )
+            for m in config.model.available_models
+        ]
+        return AvailableModelsResponse(models=models)
+    except Exception as e:
+        logger.error(f"Error getting available models: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get available models: {str(e)}")
+
+
 @router.post("", response_model=PersonaResponse, status_code=201)
 async def create_persona(persona: PersonaCreate):
     """Create a new writing persona"""
@@ -79,6 +103,7 @@ async def create_persona(persona: PersonaCreate):
             "description": persona.description,
             "user_id": persona.user_id,
             "collection_name": collection_name,
+            "model": persona.model,
             "corpus_file_count": 0,
             "chunk_count": 0,
             "created_at": now,
@@ -154,6 +179,58 @@ async def get_persona(persona_id: str, user_id: str):
         raise HTTPException(status_code=403, detail="Not authorized to access this persona")
 
     return PersonaResponse(**persona)
+
+
+@router.patch("/{persona_id}", response_model=PersonaResponse)
+async def update_persona(persona_id: str, user_id: str, updates: PersonaUpdate):
+    """Update a persona's settings (name, description, model)"""
+    persona = None
+
+    if db is not None:
+        # Get from Firestore
+        doc = db.collection('personas').document(persona_id).get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Persona not found")
+        persona = doc.to_dict()
+    else:
+        # Get from memory
+        if persona_id not in personas_store:
+            raise HTTPException(status_code=404, detail="Persona not found")
+        persona = personas_store[persona_id]
+
+    # Verify ownership
+    if persona["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to modify this persona")
+
+    try:
+        # Build update dict with only provided fields
+        update_data = {}
+        if updates.name is not None:
+            update_data["name"] = updates.name
+        if updates.description is not None:
+            update_data["description"] = updates.description
+        if updates.model is not None:
+            update_data["model"] = updates.model
+
+        if update_data:
+            update_data["updated_at"] = datetime.utcnow()
+
+            # Update in Firestore or memory
+            if db is not None:
+                db.collection('personas').document(persona_id).update(update_data)
+                # Refresh persona data
+                doc = db.collection('personas').document(persona_id).get()
+                persona = doc.to_dict()
+            else:
+                personas_store[persona_id].update(update_data)
+                persona = personas_store[persona_id]
+
+        logger.info(f"Updated persona {persona_id}: {list(update_data.keys())}")
+        return PersonaResponse(**persona)
+
+    except Exception as e:
+        logger.error(f"Error updating persona: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update persona: {str(e)}")
 
 
 @router.delete("/{persona_id}", status_code=204)

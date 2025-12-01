@@ -206,13 +206,34 @@ class AnimaService {
   }
 
   /**
+   * Get available models for persona selection
+   * @returns {Promise<Array>} List of available models
+   */
+  async getAvailableModels() {
+    try {
+      const response = await fetch(`${API_URL}/api/personas/models`);
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch available models');
+      }
+
+      const data = await response.json();
+      return data.models || [];
+    } catch (error) {
+      console.error('Error fetching available models:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Create a new persona
    * @param {string} name - Persona name
    * @param {string} description - Persona description
    * @param {string} userId - Firebase UID
+   * @param {string} model - Model ID to use for this persona
    * @returns {Promise<object>} Created persona
    */
-  async createPersona(name, description, userId) {
+  async createPersona(name, description, userId, model = 'gpt-5') {
     try {
       const response = await fetch(`${API_URL}/api/personas`, {
         method: 'POST',
@@ -222,7 +243,8 @@ class AnimaService {
         body: JSON.stringify({
           name,
           description,
-          user_id: userId
+          user_id: userId,
+          model
         })
       });
 
@@ -234,6 +256,38 @@ class AnimaService {
       return await response.json();
     } catch (error) {
       console.error('Error creating persona:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Update a persona's settings
+   * @param {string} personaId - Persona ID
+   * @param {string} userId - Firebase UID
+   * @param {object} updates - Fields to update (name, description, model)
+   * @returns {Promise<object>} Updated persona
+   */
+  async updatePersona(personaId, userId, updates) {
+    try {
+      const response = await fetch(
+        `${API_URL}/api/personas/${personaId}?user_id=${userId}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(updates)
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to update persona');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error updating persona:', error);
       throw error;
     }
   }

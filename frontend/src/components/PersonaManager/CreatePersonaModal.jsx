@@ -1,10 +1,38 @@
-import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { X, Cpu } from 'lucide-react';
+import animaService from '../../services/animaService';
 
 const CreatePersonaModal = ({ isOpen, onClose, onCreate }) => {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [selectedModel, setSelectedModel] = useState('gpt-5');
+  const [availableModels, setAvailableModels] = useState([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingModels, setIsLoadingModels] = useState(false);
+
+  // Fetch available models when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setIsLoadingModels(true);
+      animaService.getAvailableModels()
+        .then(models => {
+          setAvailableModels(models);
+          // Set default to first model if available
+          if (models.length > 0 && !selectedModel) {
+            setSelectedModel(models[0].id);
+          }
+        })
+        .catch(error => {
+          console.error('Error fetching models:', error);
+          // Fallback to default models if API fails
+          setAvailableModels([
+            { id: 'gpt-5', name: 'GPT-5', provider: 'openai', description: 'OpenAI\'s most advanced model' },
+            { id: 'kimi-k2', name: 'Kimi K2', provider: 'moonshot', description: 'Moonshot\'s flagship model' }
+          ]);
+        })
+        .finally(() => setIsLoadingModels(false));
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -20,12 +48,14 @@ const CreatePersonaModal = ({ isOpen, onClose, onCreate }) => {
     try {
       await onCreate({
         name: name.trim(),
-        description: description.trim() || null
+        description: description.trim() || null,
+        model: selectedModel
       });
 
       // Reset form
       setName('');
       setDescription('');
+      setSelectedModel('gpt-5');
     } catch (error) {
       console.error('Error creating persona:', error);
     } finally {
@@ -82,6 +112,36 @@ const CreatePersonaModal = ({ isOpen, onClose, onCreate }) => {
             <p className="mt-1 text-xs text-gray-500">
               Optional description of the writing style
             </p>
+          </div>
+
+          {/* Model Selection */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              <Cpu className="w-4 h-4 inline mr-1" />
+              AI Model
+            </label>
+            <select
+              value={selectedModel}
+              onChange={(e) => setSelectedModel(e.target.value)}
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+              disabled={isLoadingModels}
+            >
+              {isLoadingModels ? (
+                <option>Loading models...</option>
+              ) : (
+                availableModels.map(model => (
+                  <option key={model.id} value={model.id}>
+                    {model.name}
+                  </option>
+                ))
+              )}
+            </select>
+            {/* Model description */}
+            {!isLoadingModels && availableModels.length > 0 && (
+              <p className="mt-1 text-xs text-gray-500">
+                {availableModels.find(m => m.id === selectedModel)?.description || ''}
+              </p>
+            )}
           </div>
 
           {/* Footer */}
