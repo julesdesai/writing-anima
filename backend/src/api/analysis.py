@@ -105,11 +105,18 @@ def parse_json_feedback(response_text: str, persona_name: str, model: str = None
         if isinstance(feedback_data, dict):
             # If it's wrapped in a key, try to extract the array
             # Prioritize 'feedback' since that's what our strict schema uses
+            extracted = False
             for key in ['feedback', 'items', 'analysis', 'response']:
                 if key in feedback_data and isinstance(feedback_data[key], list):
                     feedback_data = feedback_data[key]
                     logger.info(f"Extracted feedback array from '{key}' wrapper")
+                    extracted = True
                     break
+
+            # If it's a single feedback object (Kimi sometimes returns this), wrap in array
+            if not extracted and ('text' in feedback_data or 'content' in feedback_data or 'type' in feedback_data):
+                logger.info("Converting single feedback object to array")
+                feedback_data = [feedback_data]
 
         if not isinstance(feedback_data, list):
             logger.error(f"Expected JSON array, got: {type(feedback_data)}")
@@ -128,6 +135,7 @@ def parse_json_feedback(response_text: str, persona_name: str, model: str = None
                 # Model uses many different field names - check all variants
                 # For content field, try: content, description, feedback, recommendation, action, suggestion, issue, rationale
                 content = (item.get('content') or
+                          item.get('text') or  # Kimi sometimes uses this
                           item.get('description') or  # Kimi uses this
                           item.get('feedback') or
                           item.get('recommendation') or
@@ -173,6 +181,15 @@ def parse_json_feedback(response_text: str, persona_name: str, model: str = None
                                 source_file=src.get('source_file'),
                                 relevance=src.get('relevance')
                             ))
+
+                # Handle Kimi's flat format where source_file/relevance are directly on item
+                if not corpus_sources and item.get('source_file'):
+                    from .models import CorpusSource
+                    corpus_sources.append(CorpusSource(
+                        text=content[:200] if content else '',  # Use content as the text
+                        source_file=item.get('source_file'),
+                        relevance=item.get('relevance')
+                    ))
 
                 # Validate and create FeedbackItem
                 # Handle unknown feedback types by falling back to 'suggestion'

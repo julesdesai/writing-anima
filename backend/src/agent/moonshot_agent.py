@@ -199,7 +199,7 @@ class MoonshotAgent(BaseAgent):
             messages = [{"role": "user", "content": query}]
 
         tool_calls_log = []
-        tools_called_count = 0  # Track for tool_choice logic
+        tools_called_count = 0
 
         logger.info(f"Starting streaming agent loop for query: {query[:100]}...")
 
@@ -210,6 +210,7 @@ class MoonshotAgent(BaseAgent):
                 # Add system message
                 full_messages = [{"role": "system", "content": system_prompt}] + messages
 
+                # Always provide tools - let Kimi decide when to search vs produce feedback
                 tools = [self.search_tool.get_tool_definition_openai()]
 
                 # Add incremental reasoning tool if enabled
@@ -237,8 +238,7 @@ class MoonshotAgent(BaseAgent):
                     "stream": True,
                 }
 
-                # Always enable JSON mode for Kimi - it may ignore tool_choice anyway
-                # At least we get parseable JSON even if not grounded in corpus
+                # Enable JSON mode if configured
                 if self.use_json_mode:
                     api_params["response_format"] = self._get_feedback_schema()
                     logger.debug("JSON mode enabled")
@@ -286,9 +286,38 @@ class MoonshotAgent(BaseAgent):
 
                     # Check if done
                     if chunk.choices[0].finish_reason in ["stop", "end_turn"]:
-                        # Log warning if no tools were called (Kimi sometimes skips corpus search)
+                        # Kimi outputs tool calls as text - detect and execute them
+                        if collected_content.strip().startswith('{"name"'):
+                            try:
+                                text_tool_call = json.loads(collected_content.strip())
+                                if "name" in text_tool_call and text_tool_call["name"] == "search_corpus":
+                                    logger.info("Detected tool call output as text - executing")
+
+                                    # Parse tool input - Kimi uses both "arguments" and "parameters"
+                                    tool_input = text_tool_call.get("arguments") or text_tool_call.get("parameters") or {}
+                                    if not tool_input.get("query"):
+                                        logger.warning(f"Tool call missing query: {text_tool_call}")
+                                        tool_input = {"query": "writing style", "k": 60}
+
+                                    # Execute the tool
+                                    yield {"type": "status", "message": self._format_tool_status("search_corpus", tool_input), "tool": "search_corpus"}
+                                    result = self._execute_tool({"id": f"text_{iteration}", "name": "search_corpus", "input": tool_input})
+                                    tools_called_count += 1
+                                    tool_calls_log.append({"tool": "search_corpus", "input": tool_input, "result_count": len(result) if isinstance(result, list) else 1})
+
+                                    if isinstance(result, list):
+                                        yield {"type": "status", "message": f"Retrieved {len(result)} results", "tool": "search_corpus"}
+
+                                    # Add result to conversation
+                                    messages.append({"role": "assistant", "content": collected_content})
+                                    messages.append({"role": "user", "content": f"Tool result ({len(result) if isinstance(result, list) else 0} results):\n{str(result)[:8000]}\n\nBased on these results, do you have enough information to provide feedback? Reply with either:\n1. Another search_corpus call if you need more information\n2. Your feedback as a JSON array if you're ready"})
+                                    continue
+                            except json.JSONDecodeError:
+                                pass  # Not a tool call, treat as feedback
+
+                        # Log if no tools were called
                         if tools_called_count == 0:
-                            logger.warning(f"Kimi completed without calling any tools - feedback will not be grounded in corpus")
+                            logger.warning("Completed without tool calls - feedback may not be grounded")
 
                         logger.info(f"Agent completed in {iteration + 1} iterations with {len(tool_calls_log)} tool calls")
                         logger.info(f"Final collected_content length: {len(collected_content)}")
