@@ -143,6 +143,7 @@ class FeedbackItem(BaseModel):
     corpus_sources: List[CorpusSource] = Field(default_factory=list)  # Actual corpus passages
     position: Optional[int] = None  # Deprecated: use positions instead
     positions: List[TextPosition] = Field(default_factory=list)  # Text positions for highlighting
+    model: Optional[str] = None  # Model that generated this feedback (e.g., "gpt-5", "kimi-k2")
 
 
 class AnalysisResponse(BaseModel):

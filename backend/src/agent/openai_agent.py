@@ -211,7 +211,7 @@ class OpenAIAgent(BaseAgent):
         Returns:
             Final result dict with metadata
         """
-        system_prompt = self._build_system_prompt()
+        system_prompt = self._build_system_prompt(self.prompt_file)
 
         # Start with conversation history if provided
         if conversation_history:
@@ -259,10 +259,13 @@ class OpenAIAgent(BaseAgent):
                     "stream": True,
                 }
 
-                # Add JSON mode if enabled - use strict schema enforcement
-                if self.use_json_mode:
+                # Add JSON mode if enabled - but only AFTER tool calls are done
+                # JSON mode can interfere with tool calling, so we defer it
+                if self.use_json_mode and tools_called_count > 0:
                     api_params["response_format"] = self._get_feedback_schema()
-                    logger.debug("Strict JSON schema enforcement enabled")
+                    logger.debug("Strict JSON schema enforcement enabled (after tool calls)")
+                elif self.use_json_mode:
+                    logger.debug("JSON mode deferred until after tool calls to ensure corpus search")
 
                 # Call with streaming
                 stream = self.client.chat.completions.create(**api_params)
@@ -357,6 +360,12 @@ class OpenAIAgent(BaseAgent):
                             "input": tool_use["input"],
                             "result_count": len(result) if isinstance(result, list) else 1,
                         })
+
+                        # Detailed search logging
+                        if tool_use["name"] == "search_corpus":
+                            query = tool_use["input"].get("query", "")
+                            k = tool_use["input"].get("k", "default")
+                            logger.info(f"[GPT SEARCH #{tools_called_count}] query=\"{query[:80]}\" k={k} -> {len(result) if isinstance(result, list) else 0} results")
 
                         # Yield completion status with fragments
                         if isinstance(result, list) and len(result) > 0:

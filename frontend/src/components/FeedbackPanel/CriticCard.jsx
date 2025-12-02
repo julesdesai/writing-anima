@@ -80,6 +80,12 @@ const CriticCard = ({ feedback, onDismiss, onMarkResolved, onCreateComplex, onAp
     agent: 'AI Critic'
   } : feedback;
 
+  // Debug: log what CriticCard receives
+  console.log('[CriticCard] id:', feedbackData.id, 'title:', feedbackData.title?.substring(0, 30));
+  console.log('[CriticCard] model:', feedbackData.model);
+  console.log('[CriticCard] sources:', feedbackData.sources);
+  console.log('[CriticCard] corpus_sources:', feedbackData.corpus_sources);
+
   // Use personaName if available (from anima), otherwise fall back to agent
   const displayAgent = feedbackData.personaName || feedbackData.agent || 'AI Critic';
 
@@ -177,6 +183,13 @@ const CriticCard = ({ feedback, onDismiss, onMarkResolved, onCreateComplex, onAp
       <div className="flex items-center gap-1.5 mb-2">
         <Icon className={`w-3.5 h-3.5 flex-shrink-0 ${color}`} />
         <span className="font-medium text-obsidian-text-primary text-xs truncate">{displayAgent}</span>
+
+        {/* Model tag */}
+        {feedbackData.model && (
+          <span className="text-[10px] px-1.5 py-0.5 bg-obsidian-bg rounded border border-obsidian-border text-obsidian-text-muted font-mono">
+            {feedbackData.model}
+          </span>
+        )}
 
         {statusIcon}
 

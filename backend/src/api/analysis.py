@@ -52,13 +52,14 @@ def get_persona(persona_id: str, user_id: str) -> Dict:
     return persona
 
 
-def parse_json_feedback(response_text: str, persona_name: str) -> List[FeedbackItem]:
+def parse_json_feedback(response_text: str, persona_name: str, model: str = None) -> List[FeedbackItem]:
     """
     Parse JSON feedback from Anima's structured output.
 
     Args:
         response_text: JSON string from Anima
         persona_name: Name of the persona for logging
+        model: Model identifier that generated the feedback (e.g., "gpt-5", "kimi-k2")
 
     Returns:
         List of FeedbackItem objects
@@ -67,8 +68,37 @@ def parse_json_feedback(response_text: str, persona_name: str) -> List[FeedbackI
         # Log raw response for debugging
         logger.info(f"Raw JSON response (first 2000 chars): {response_text[:2000]}")
 
+        # Preprocess: Extract JSON from response in case model added preamble text
+        # Look for JSON array [ ... ] or object { ... }
+        json_text = response_text.strip()
+
+        # Remove markdown code fences if present
+        if json_text.startswith("```json"):
+            json_text = json_text[7:]
+        elif json_text.startswith("```"):
+            json_text = json_text[3:]
+        if json_text.endswith("```"):
+            json_text = json_text[:-3]
+        json_text = json_text.strip()
+
+        # If response doesn't start with [ or {, try to find JSON array
+        if not json_text.startswith('[') and not json_text.startswith('{'):
+            # Find first [ and last ] to extract JSON array
+            start_idx = json_text.find('[')
+            end_idx = json_text.rfind(']')
+            if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                json_text = json_text[start_idx:end_idx + 1]
+                logger.info(f"Extracted JSON array from response (removed preamble)")
+            else:
+                # Try to find JSON object
+                start_idx = json_text.find('{')
+                end_idx = json_text.rfind('}')
+                if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
+                    json_text = json_text[start_idx:end_idx + 1]
+                    logger.info(f"Extracted JSON object from response (removed preamble)")
+
         # Parse JSON response
-        feedback_data = json.loads(response_text)
+        feedback_data = json.loads(json_text)
 
         # Handle both array and object responses
         # With strict schema, it should be wrapped in {"feedback": [...]}
@@ -96,8 +126,9 @@ def parse_json_feedback(response_text: str, persona_name: str) -> List[FeedbackI
 
                 # Handle both expected schema and actual model output
                 # Model uses many different field names - check all variants
-                # For content field, try: content, feedback, recommendation, action, suggestion, issue, rationale
+                # For content field, try: content, description, feedback, recommendation, action, suggestion, issue, rationale
                 content = (item.get('content') or
+                          item.get('description') or  # Kimi uses this
                           item.get('feedback') or
                           item.get('recommendation') or
                           item.get('action') or
@@ -144,19 +175,43 @@ def parse_json_feedback(response_text: str, persona_name: str) -> List[FeedbackI
                             ))
 
                 # Validate and create FeedbackItem
+                # Handle unknown feedback types by falling back to 'suggestion'
+                raw_type = item.get('type', 'suggestion')
+                try:
+                    feedback_type = FeedbackType(raw_type)
+                except ValueError:
+                    logger.warning(f"Unknown feedback type '{raw_type}', falling back to 'suggestion'")
+                    feedback_type = FeedbackType.SUGGESTION
+
+                # Handle severity mapping (Kimi uses minor/moderate/major)
+                raw_severity = item.get('severity', 'medium')
+                severity_map = {
+                    'minor': 'low',
+                    'moderate': 'medium',
+                    'major': 'high',
+                    'critical': 'high',
+                }
+                mapped_severity = severity_map.get(raw_severity, raw_severity)
+                try:
+                    severity = FeedbackSeverity(mapped_severity)
+                except ValueError:
+                    logger.warning(f"Unknown severity '{raw_severity}', falling back to 'medium'")
+                    severity = FeedbackSeverity.MEDIUM
+
                 feedback_items.append(
                     FeedbackItem(
                         id=str(uuid.uuid4()),
-                        type=FeedbackType(item.get('type', 'suggestion')),
+                        type=feedback_type,
                         category=item.get('category', 'general'),
                         title=title[:100],  # Limit title length
                         content=content,
-                        severity=FeedbackSeverity(item.get('severity', 'medium')),
+                        severity=severity,
                         confidence=float(item.get('confidence', 0.7)),
                         sources=sources if isinstance(sources, list) else [],
                         corpus_sources=corpus_sources,
                         position=item.get('position'),
-                        positions=positions
+                        positions=positions,
+                        model=model
                     )
                 )
             except Exception as e:
@@ -176,7 +231,7 @@ def parse_json_feedback(response_text: str, persona_name: str) -> List[FeedbackI
         if json_match:
             try:
                 feedback_data = json.loads(json_match.group(0))
-                return parse_json_feedback(json.dumps(feedback_data), persona_name)
+                return parse_json_feedback(json.dumps(feedback_data), persona_name, model)
             except:
                 pass
 
@@ -256,7 +311,7 @@ async def analyze_writing(request: AnalysisRequest):
 
         # Parse JSON feedback
         response_text = result.get("response", "")
-        feedback_items = parse_json_feedback(response_text, persona["name"])
+        feedback_items = parse_json_feedback(response_text, persona["name"], selected_model)
 
         # Limit to max items
         feedback_items = feedback_items[:request.max_feedback_items]
@@ -326,7 +381,7 @@ async def analyze_writing_stream(websocket: WebSocket):
         # Send initial status
         await websocket.send_json(
             StreamStatus(
-                message="Initializing Anima agent...",
+                message="Initializing Anima...",
                 progress=0.1
             ).dict()
         )
@@ -363,7 +418,7 @@ async def analyze_writing_stream(websocket: WebSocket):
         # Send status
         await websocket.send_json(
             StreamStatus(
-                message=f"Agent ready ({selected_model}), starting analysis...",
+                message=f"Anima ready ({selected_model}), starting analysis...",
                 progress=0.2
             ).dict()
         )
@@ -428,12 +483,31 @@ async def analyze_writing_stream(websocket: WebSocket):
             ).dict()
         )
 
+        # Safety check - if result is None, agent didn't complete properly
+        if result is None:
+            logger.error("Agent did not return a result - may have stopped early")
+            await websocket.send_json({
+                "type": "error",
+                "message": "Agent did not return feedback. Try again."
+            })
+            await websocket.close()
+            return
+
         response_text = result.get("response", "")
         logger.info(f"Response text length: {len(response_text)}")
         logger.info(f"Response preview (first 1000 chars): {response_text[:1000]}")
 
-        feedback_items = parse_json_feedback(response_text, persona["name"])
-        logger.info(f"Parsed {len(feedback_items)} feedback items")
+        try:
+            feedback_items = parse_json_feedback(response_text, persona["name"], selected_model)
+            logger.info(f"Parsed {len(feedback_items)} feedback items")
+        except Exception as parse_error:
+            logger.error(f"Failed to parse feedback: {parse_error}")
+            await websocket.send_json({
+                "type": "error",
+                "message": f"Failed to parse feedback: {str(parse_error)}"
+            })
+            await websocket.close()
+            return
 
         feedback_items = feedback_items[:request.max_feedback_items]
         logger.info(f"After max limit: {len(feedback_items)} feedback items")

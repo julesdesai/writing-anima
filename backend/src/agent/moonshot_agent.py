@@ -62,54 +62,9 @@ class MoonshotAgent(BaseAgent):
         return None
 
     def _get_feedback_schema(self) -> Dict:
-        """Get strict JSON schema for feedback responses"""
-        return {
-            "type": "json_schema",
-            "json_schema": {
-                "name": "feedback_response",
-                "strict": True,
-                "schema": {
-                    "type": "object",
-                    "properties": {
-                        "feedback": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "type": {"type": "string", "enum": ["issue", "suggestion", "praise", "question"]},
-                                    "category": {"type": "string", "enum": ["clarity", "style", "logic", "evidence", "structure", "voice", "craft", "general"]},
-                                    "title": {"type": "string"},
-                                    "content": {"type": "string"},
-                                    "severity": {"type": "string", "enum": ["low", "medium", "high"]},
-                                    "confidence": {"type": "number"},
-                                    "corpus_references": {
-                                        "type": "array",
-                                        "items": {"type": "string"}
-                                    },
-                                    "text_positions": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "start": {"type": "integer"},
-                                                "end": {"type": "integer"},
-                                                "text": {"type": "string"}
-                                            },
-                                            "required": ["start", "end", "text"],
-                                            "additionalProperties": False
-                                        }
-                                    }
-                                },
-                                "required": ["type", "category", "title", "content", "severity", "confidence", "corpus_references", "text_positions"],
-                                "additionalProperties": False
-                            }
-                        }
-                    },
-                    "required": ["feedback"],
-                    "additionalProperties": False
-                }
-            }
-        }
+        """Get JSON response format for Moonshot/Kimi - uses simple json_object mode"""
+        # Kimi doesn't support strict JSON schema like OpenAI, use simple JSON mode
+        return {"type": "json_object"}
 
     def _call_model(self, system: str, messages: List[Dict]) -> Any:
         """Call Moonshot API"""
@@ -154,11 +109,20 @@ class MoonshotAgent(BaseAgent):
 
         tools = []
         for tool_call in message.tool_calls:
+            # Parse arguments with error handling
+            try:
+                args_str = tool_call.function.arguments
+                tool_input = json.loads(args_str) if args_str else {}
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse tool arguments: {e}")
+                logger.error(f"Raw arguments: {tool_call.function.arguments[:500]}")
+                tool_input = {"query": "error parsing arguments", "k": 60}
+
             tools.append(
                 {
                     "id": tool_call.id,
                     "name": tool_call.function.name,
-                    "input": json.loads(tool_call.function.arguments),
+                    "input": tool_input,
                 }
             )
         return tools
@@ -223,7 +187,9 @@ class MoonshotAgent(BaseAgent):
         Returns:
             Final result dict with metadata
         """
-        system_prompt = self._build_system_prompt()
+        system_prompt = self._build_system_prompt(self.prompt_file)
+        logger.info(f"Built system prompt using {self.prompt_file}, length: {len(system_prompt)}")
+        logger.debug(f"System prompt preview: {system_prompt[:500]}...")
 
         # Start with conversation history if provided
         if conversation_history:
@@ -253,12 +219,11 @@ class MoonshotAgent(BaseAgent):
                 logger.debug(f"Calling model with {len(tools)} tools available")
                 logger.debug(f"Tool names: {[t['function']['name'] for t in tools]}")
 
-                # Determine tool_choice: require tools only on first iteration if no tools called yet
-                # After first tool use, allow model to finish naturally
-                if self.config.agent.force_tool_use and tools_called_count == 0:
-                    tool_choice = "required"
-                else:
-                    tool_choice = "auto"
+                # Kimi K2 only documents tool_choice="auto" - it decides autonomously
+                # We rely on strong prompt instructions to encourage tool use
+                tool_choice = "auto"
+                if tools_called_count == 0:
+                    logger.info(f"Iteration {iteration + 1}: No tool calls yet, hoping Kimi will search corpus")
                 logger.debug(f"Tool choice: {tool_choice} (iteration {iteration + 1}, tools called: {tools_called_count})")
 
                 # Build API call parameters
@@ -272,10 +237,11 @@ class MoonshotAgent(BaseAgent):
                     "stream": True,
                 }
 
-                # Add JSON mode if enabled - use strict schema enforcement
+                # Always enable JSON mode for Kimi - it may ignore tool_choice anyway
+                # At least we get parseable JSON even if not grounded in corpus
                 if self.use_json_mode:
                     api_params["response_format"] = self._get_feedback_schema()
-                    logger.debug("Strict JSON schema enforcement enabled")
+                    logger.debug("JSON mode enabled")
 
                 # Call with streaming
                 stream = self.client.chat.completions.create(**api_params)
@@ -320,6 +286,10 @@ class MoonshotAgent(BaseAgent):
 
                     # Check if done
                     if chunk.choices[0].finish_reason in ["stop", "end_turn"]:
+                        # Log warning if no tools were called (Kimi sometimes skips corpus search)
+                        if tools_called_count == 0:
+                            logger.warning(f"Kimi completed without calling any tools - feedback will not be grounded in corpus")
+
                         logger.info(f"Agent completed in {iteration + 1} iterations with {len(tool_calls_log)} tool calls")
                         logger.info(f"Final collected_content length: {len(collected_content)}")
                         logger.info(f"Final collected_content preview: {collected_content[:200]}")
@@ -345,10 +315,19 @@ class MoonshotAgent(BaseAgent):
                     # Execute tools
                     tool_results = []
                     for tool_call in collected_tool_calls:
+                        # Parse tool arguments with error handling
+                        try:
+                            args_str = tool_call["function"]["arguments"]
+                            tool_input = json.loads(args_str) if args_str else {}
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse tool arguments: {e}")
+                            logger.error(f"Raw arguments: {tool_call['function']['arguments'][:500]}")
+                            tool_input = {"query": "error parsing arguments", "k": 60}
+
                         tool_use = {
                             "id": tool_call["id"],
                             "name": tool_call["function"]["name"],
-                            "input": json.loads(tool_call["function"]["arguments"]),
+                            "input": tool_input,
                         }
 
                         # Yield status about tool execution
@@ -370,6 +349,12 @@ class MoonshotAgent(BaseAgent):
                             "input": tool_use["input"],
                             "result_count": len(result) if isinstance(result, list) else 1,
                         })
+
+                        # Detailed search logging
+                        if tool_use["name"] == "search_corpus":
+                            query = tool_use["input"].get("query", "")
+                            k = tool_use["input"].get("k", "default")
+                            logger.info(f"[KIMI SEARCH #{tools_called_count}] query=\"{query[:80]}\" k={k} -> {len(result) if isinstance(result, list) else 0} results")
 
                         # Yield completion status with fragments
                         if isinstance(result, list) and len(result) > 0:

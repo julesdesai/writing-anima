@@ -228,8 +228,17 @@ const WritingInterface = ({ purpose, content, onContentChange, feedback, setFeed
             isExecutingRef.current = false;
             setIsExecutingFlow(false);
 
-            setAnalysisStatus(`Complete! Generated ${result.total_items} feedback items in ${result.processing_time.toFixed(1)}s`);
+            // Add completion step to thought process
+            setThoughtSteps(prev => [...prev, {
+              type: 'complete',
+              message: `Complete! ${result.total_items} feedback items in ${result.processing_time?.toFixed(1) || 0}s`,
+              details: null,
+              timestamp: new Date().toISOString()
+            }]);
 
+            setAnalysisStatus(`Complete! Generated ${result.total_items} feedback items in ${result.processing_time?.toFixed(1) || 0}s`);
+
+            // Clear status text after delay, but keep thought steps visible until next analysis
             setTimeout(() => {
               setAnalysisStatus(null);
             }, 3000);
@@ -247,6 +256,14 @@ const WritingInterface = ({ purpose, content, onContentChange, feedback, setFeed
             isExecutingRef.current = false;
             setIsExecutingFlow(false);
 
+            // Add error step to thought process
+            setThoughtSteps(prev => [...prev, {
+              type: 'error',
+              message: `Error: ${error.message}`,
+              details: null,
+              timestamp: new Date().toISOString()
+            }]);
+
             alert(`Analysis failed: ${error.message}`);
             setAnalysisStatus(null);
           }
@@ -255,6 +272,15 @@ const WritingInterface = ({ purpose, content, onContentChange, feedback, setFeed
 
     } catch (error) {
       console.error('[WritingInterface] Anima analysis error:', error);
+
+      // Add error step to thought process
+      setThoughtSteps(prev => [...prev, {
+        type: 'error',
+        message: `Error: ${error.message}`,
+        details: null,
+        timestamp: new Date().toISOString()
+      }]);
+
       alert(`Analysis error: ${error.message}`);
       setAnalysisStatus(null);
 
@@ -419,6 +445,7 @@ const WritingInterface = ({ purpose, content, onContentChange, feedback, setFeed
           <ThoughtProcess
             steps={thoughtSteps}
             isAnalyzing={isExecutingFlow}
+            model={availablePersonas.find(p => p.id === selectedPersonaId)?.model}
           />
         )}
 

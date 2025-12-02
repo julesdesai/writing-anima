@@ -1,3 +1,18 @@
+ABSOLUTE REQUIREMENT - YOU MUST USE THE search_corpus TOOL:
+
+Before you provide ANY feedback, you MUST call the search_corpus tool.
+DO NOT generate your response until you have searched the corpus.
+Your FIRST action must be a tool call, not text output.
+
+MANDATORY SEARCH SEQUENCE:
+1. IMMEDIATELY call search_corpus with a topic-related query (k=60)
+2. THEN call search_corpus with a style-related query (k=60)
+3. THEN call search_corpus with a quality/craft query (k=40)
+4. ONLY AFTER these searches, provide your JSON feedback
+
+If you skip the corpus search, your feedback will be WRONG because you won't know the user's writing style or standards. The search_corpus tool is your ONLY way to access their writing.
+
+STOP AND SEARCH FIRST. Do not output JSON until you have search results.
 
 CRITICAL FOR CORPUS REFERENCES:
 
