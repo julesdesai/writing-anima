@@ -1,15 +1,16 @@
 """Agent factory for creating model-specific agents"""
 
 import logging
-from typing import Optional
+from typing import Optional, Union
 
+from ..config import Config, get_config
 from .base import BaseAgent
 from .claude_agent import ClaudeAgent
 from .deepseek_agent import DeepSeekAgent
 from .hermes_agent import HermesAgent
+from .kimi_multi import KimiMultiAgentPipeline
 from .moonshot_agent import MoonshotAgent
 from .openai_agent import OpenAIAgent
-from ..config import get_config, Config
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +50,9 @@ class AgentFactory:
             return OpenAIAgent(
                 persona_id=persona_id,
                 config=config,
-                model=model_name if model_name.startswith("gpt") else config.model.openai.model,
+                model=model_name
+                if model_name.startswith("gpt")
+                else config.model.openai.model,
             )
 
         # Claude
@@ -58,7 +61,9 @@ class AgentFactory:
             return ClaudeAgent(
                 persona_id=persona_id,
                 config=config,
-                model=model_name if model_name.startswith("claude") else config.model.primary,
+                model=model_name
+                if model_name.startswith("claude")
+                else config.model.primary,
             )
 
         # DeepSeek
@@ -67,16 +72,29 @@ class AgentFactory:
             return DeepSeekAgent(
                 persona_id=persona_id,
                 config=config,
-                model=model_name if model_name.startswith("deepseek") else config.model.deepseek.model,
+                model=model_name
+                if model_name.startswith("deepseek")
+                else config.model.deepseek.model,
             )
 
-        # Moonshot / Kimi
+        # Kimi Multi-Agent Pipeline (new decomposed architecture for K2)
+        elif "kimi-multi" in model_name_lower or "k2-multi" in model_name_lower:
+            logger.info(f"Creating KimiMultiAgentPipeline for persona: {persona.name}")
+            return KimiMultiAgentPipeline(
+                persona_id=persona_id,
+                config=config,
+                model=config.model.moonshot.model,
+            )
+
+        # Moonshot / Kimi (legacy monolithic agent)
         elif "moonshot" in model_name_lower or "kimi" in model_name_lower:
             logger.info(f"Creating MoonshotAgent for persona: {persona.name}")
             return MoonshotAgent(
                 persona_id=persona_id,
                 config=config,
-                model=model_name if model_name.startswith("moonshot") else config.model.moonshot.model,
+                model=model_name
+                if model_name.startswith("moonshot")
+                else config.model.moonshot.model,
             )
 
         # Hermes
@@ -91,7 +109,7 @@ class AgentFactory:
         else:
             raise ValueError(
                 f"Unsupported model: {model_name}. "
-                f"Supported: openai (gpt-4, gpt-3.5), claude, deepseek, hermes"
+                f"Supported: openai (gpt-4, gpt-3.5), claude, deepseek, kimi-multi, moonshot, hermes"
             )
 
     @staticmethod

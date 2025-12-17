@@ -64,6 +64,10 @@ model:
       name: Kimi K2
       provider: moonshot
       description: Moonshot's flagship MoE model with 1T parameters and 128K context
+    - id: kimi-multi
+      name: Kimi K2 Multi-Agent
+      provider: moonshot
+      description: Multi-agent pipeline with worldview immersion for deeper critique
   openai:
     api_key_env: OPENAI_API_KEY
     model: gpt-4o
@@ -113,12 +117,12 @@ corpus:
   chunk_overlap: 100
   min_chunk_length: 100
   file_types:
-  - .txt
-  - .md
-  - .email
-  - .json
-  - .pdf
-  - .mbox
+    - .txt
+    - .md
+    - .email
+    - .json
+    - .pdf
+    - .mbox
 retrieval:
   default_k: 80
   max_k: 120
@@ -139,9 +143,9 @@ cost_tracking:
   budget_alert_threshold: 10.0
 tts:
   enabled: false
-  provider: local  # Options: "local" (XTTS-v2, voice cloning), "kokoro" (fast), "elevenlabs" (paid)
-  use_streaming: true  # Stream audio sentence-by-sentence (better UX)
-  use_gpu: true  # Use GPU acceleration if available (M1/M2/M3, CUDA)
+  provider: local # Options: "local" (XTTS-v2, voice cloning), "kokoro" (fast), "elevenlabs" (paid)
+  use_streaming: true # Stream audio sentence-by-sentence (better UX)
+  use_gpu: true # Use GPU acceleration if available (M1/M2/M3, CUDA)
   api_key_env: ELEVENLABS_API_KEY
   model: eleven_multilingual_v2
   voice_stability: 0.5
