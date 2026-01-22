@@ -180,7 +180,7 @@ class CorpusSearchTool:
         """Get tool definition for Claude API format"""
         return {
             "name": "search_corpus",
-            "description": "Search the user's writing corpus to retrieve examples of BOTH their ideas AND their writing style. Returns excerpts showing how they write, think, and express themselves. Use k=60-80 for content retrieval and k=20-30 for style retrieval.",
+            "description": "Search the user's writing corpus to retrieve examples of BOTH their ideas AND their writing style. Returns excerpts showing how they write, think, and express themselves. Use k=100 for comprehensive retrieval that provides both content and style grounding.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -190,7 +190,7 @@ class CorpusSearchTool:
                     },
                     "k": {
                         "type": "integer",
-                        "description": f"Number of results to return. Use 60-80 for content, 20-30 for style. Max: {self.config.retrieval.max_k}.",
+                        "description": f"Number of results to return. Use k=100 for comprehensive content and style grounding. Max: {self.config.retrieval.max_k}.",
                         "default": self.config.retrieval.default_k,
                     },
                     "time_range": {
@@ -225,7 +225,7 @@ class CorpusSearchTool:
             "type": "function",
             "function": {
                 "name": "search_corpus",
-                "description": "Search the user's writing corpus to retrieve examples of BOTH their ideas AND their writing style. Returns excerpts showing how they write, think, and express themselves. Use k=60-80 for content retrieval and k=20-30 for style retrieval.",
+                "description": "Search the user's writing corpus to retrieve examples of BOTH their ideas AND their writing style. Returns excerpts showing how they write, think, and express themselves. Use k=100 for comprehensive retrieval that provides both content and style grounding.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -235,7 +235,7 @@ class CorpusSearchTool:
                         },
                         "k": {
                             "type": "integer",
-                            "description": f"Number of results to return. Use 60-80 for content, 20-30 for style. Max: {self.config.retrieval.max_k}",
+                            "description": f"Number of results to return. Use k=100 for comprehensive content and style grounding. Max: {self.config.retrieval.max_k}",
                             "default": self.config.retrieval.default_k,
                         },
                         "time_range": {

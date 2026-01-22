@@ -3,8 +3,8 @@
  * Handles all communication with the Writing-Anima backend
  */
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8000';
+const API_URL = process.env.REACT_APP_API_URL || "http://localhost:8000";
+const WS_URL = process.env.REACT_APP_WS_URL || "ws://localhost:8000";
 
 class AnimaService {
   /**
@@ -16,12 +16,18 @@ class AnimaService {
    * @param {number} maxFeedbackItems - Maximum number of feedback items
    * @returns {Promise<object>} Analysis response with feedback items
    */
-  async analyzeWriting(content, personaId, userId, context = {}, maxFeedbackItems = 10) {
+  async analyzeWriting(
+    content,
+    personaId,
+    userId,
+    context = {},
+    maxFeedbackItems = 10,
+  ) {
     try {
       const response = await fetch(`${API_URL}/api/analyze`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           content,
@@ -30,21 +36,21 @@ class AnimaService {
           context: {
             purpose: context.purpose || null,
             criteria: context.criteria || [],
-            feedback_history: context.feedbackHistory || []
+            feedback_history: context.feedbackHistory || [],
           },
-          max_feedback_items: maxFeedbackItems
-        })
+          max_feedback_items: maxFeedbackItems,
+        }),
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Analysis failed');
+        throw new Error(error.detail || "Analysis failed");
       }
 
       const result = await response.json();
       return result;
     } catch (error) {
-      console.error('Error analyzing writing:', error);
+      console.error("Error analyzing writing:", error);
       throw error;
     }
   }
@@ -66,13 +72,13 @@ class AnimaService {
     personaId,
     userId,
     context = {},
-    callbacks = {}
+    callbacks = {},
   ) {
     const {
       onStatus = () => {},
       onFeedback = () => {},
       onComplete = () => {},
-      onError = () => {}
+      onError = () => {},
     } = callbacks;
 
     return new Promise((resolve, reject) => {
@@ -81,20 +87,23 @@ class AnimaService {
       let completionReceived = false;
 
       ws.onopen = () => {
-        console.log('WebSocket connected');
+        console.log("WebSocket connected");
 
         // Send analysis request
-        ws.send(JSON.stringify({
-          content,
-          persona_id: personaId,
-          user_id: userId,
-          context: {
-            purpose: context.purpose || null,
-            criteria: context.criteria || [],
-            feedback_history: context.feedbackHistory || []
-          },
-          max_feedback_items: context.maxFeedbackItems || 10
-        }));
+        ws.send(
+          JSON.stringify({
+            content,
+            persona_id: personaId,
+            user_id: userId,
+            model: context.model || null, // Model override from toolbar
+            context: {
+              purpose: context.purpose || null,
+              criteria: context.criteria || [],
+              feedback_history: context.feedbackHistory || [],
+            },
+            max_feedback_items: context.maxFeedbackItems || 10,
+          }),
+        );
 
         resolve(ws);
       };
@@ -104,58 +113,70 @@ class AnimaService {
           const message = JSON.parse(event.data);
 
           switch (message.type) {
-            case 'status':
+            case "status":
               onStatus(message);
               break;
 
-            case 'feedback':
+            case "feedback":
               feedbackReceived++;
               onFeedback(message.item);
               break;
 
-            case 'complete':
+            case "complete":
               completionReceived = true;
               onComplete(message);
               ws.close();
               break;
 
-            case 'error':
-              onError(new Error(message.message || 'Analysis failed'));
+            case "error":
+              onError(new Error(message.message || "Analysis failed"));
               ws.close();
               break;
 
             default:
-              console.warn('Unknown message type:', message.type);
+              console.warn("Unknown message type:", message.type);
           }
         } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
+          console.error("Error parsing WebSocket message:", error);
           onError(error);
         }
       };
 
       ws.onerror = (error) => {
-        console.error('WebSocket error (may be transient during AI processing):', error);
+        console.error(
+          "WebSocket error (may be transient during AI processing):",
+          error,
+        );
         // Don't immediately report errors - wait for onclose to determine if it's a real failure
         // This prevents premature error alerts during long AI inference
       };
 
       ws.onclose = (event) => {
-        console.log('WebSocket closed', { code: event.code, reason: event.reason });
+        console.log("WebSocket closed", {
+          code: event.code,
+          reason: event.reason,
+        });
 
         // If we got feedback but no completion message, treat as partial success
         if (feedbackReceived > 0 && !completionReceived) {
-          console.log(`Stream closed after ${feedbackReceived} items without completion message`);
+          console.log(
+            `Stream closed after ${feedbackReceived} items without completion message`,
+          );
           onComplete({
             total_items: feedbackReceived,
             processing_time: 0,
-            partial: true
+            partial: true,
           });
         }
         // Only report error if connection closed abnormally with NO feedback received
         else if (feedbackReceived === 0 && event.code !== 1000) {
-          console.error('WebSocket closed without receiving any feedback');
-          onError(new Error('Connection closed without receiving feedback. Backend may be down.'));
-          reject(new Error('Connection failed'));
+          console.error("WebSocket closed without receiving any feedback");
+          onError(
+            new Error(
+              "Connection closed without receiving feedback. Backend may be down.",
+            ),
+          );
+          reject(new Error("Connection failed"));
         }
       };
     });
@@ -171,13 +192,13 @@ class AnimaService {
       const response = await fetch(`${API_URL}/api/personas?user_id=${userId}`);
 
       if (!response.ok) {
-        throw new Error('Failed to fetch personas');
+        throw new Error("Failed to fetch personas");
       }
 
       const data = await response.json();
       return data.personas || [];
     } catch (error) {
-      console.error('Error fetching personas:', error);
+      console.error("Error fetching personas:", error);
       throw error;
     }
   }
@@ -191,16 +212,16 @@ class AnimaService {
   async getPersona(personaId, userId) {
     try {
       const response = await fetch(
-        `${API_URL}/api/personas/${personaId}?user_id=${userId}`
+        `${API_URL}/api/personas/${personaId}?user_id=${userId}`,
       );
 
       if (!response.ok) {
-        throw new Error('Failed to fetch persona');
+        throw new Error("Failed to fetch persona");
       }
 
       return await response.json();
     } catch (error) {
-      console.error('Error fetching persona:', error);
+      console.error("Error fetching persona:", error);
       throw error;
     }
   }
@@ -214,13 +235,13 @@ class AnimaService {
       const response = await fetch(`${API_URL}/api/personas/models`);
 
       if (!response.ok) {
-        throw new Error('Failed to fetch available models');
+        throw new Error("Failed to fetch available models");
       }
 
       const data = await response.json();
       return data.models || [];
     } catch (error) {
-      console.error('Error fetching available models:', error);
+      console.error("Error fetching available models:", error);
       throw error;
     }
   }
@@ -233,29 +254,29 @@ class AnimaService {
    * @param {string} model - Model ID to use for this persona
    * @returns {Promise<object>} Created persona
    */
-  async createPersona(name, description, userId, model = 'gpt-5') {
+  async createPersona(name, description, userId, model = "gpt-5") {
     try {
       const response = await fetch(`${API_URL}/api/personas`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           name,
           description,
           user_id: userId,
-          model
-        })
+          model,
+        }),
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to create persona');
+        throw new Error(error.detail || "Failed to create persona");
       }
 
       return await response.json();
     } catch (error) {
-      console.error('Error creating persona:', error);
+      console.error("Error creating persona:", error);
       throw error;
     }
   }
@@ -272,22 +293,22 @@ class AnimaService {
       const response = await fetch(
         `${API_URL}/api/personas/${personaId}?user_id=${userId}`,
         {
-          method: 'PATCH',
+          method: "PATCH",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
-          body: JSON.stringify(updates)
-        }
+          body: JSON.stringify(updates),
+        },
       );
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Failed to update persona');
+        throw new Error(error.detail || "Failed to update persona");
       }
 
       return await response.json();
     } catch (error) {
-      console.error('Error updating persona:', error);
+      console.error("Error updating persona:", error);
       throw error;
     }
   }
@@ -302,14 +323,14 @@ class AnimaService {
     try {
       const response = await fetch(
         `${API_URL}/api/personas/${personaId}?user_id=${userId}`,
-        { method: 'DELETE' }
+        { method: "DELETE" },
       );
 
       if (!response.ok) {
-        throw new Error('Failed to delete persona');
+        throw new Error("Failed to delete persona");
       }
     } catch (error) {
-      console.error('Error deleting persona:', error);
+      console.error("Error deleting persona:", error);
       throw error;
     }
   }
@@ -324,28 +345,28 @@ class AnimaService {
   async uploadCorpus(personaId, userId, files) {
     try {
       const formData = new FormData();
-      formData.append('user_id', userId);
+      formData.append("user_id", userId);
 
-      Array.from(files).forEach(file => {
-        formData.append('files', file);
+      Array.from(files).forEach((file) => {
+        formData.append("files", file);
       });
 
       const response = await fetch(
         `${API_URL}/api/personas/${personaId}/corpus`,
         {
-          method: 'POST',
-          body: formData
-        }
+          method: "POST",
+          body: formData,
+        },
       );
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.detail || 'Upload failed');
+        throw new Error(error.detail || "Upload failed");
       }
 
       return await response.json();
     } catch (error) {
-      console.error('Error uploading corpus:', error);
+      console.error("Error uploading corpus:", error);
       throw error;
     }
   }
@@ -359,16 +380,16 @@ class AnimaService {
   async getIngestionStatus(personaId, userId) {
     try {
       const response = await fetch(
-        `${API_URL}/api/personas/${personaId}/corpus/status?user_id=${userId}`
+        `${API_URL}/api/personas/${personaId}/corpus/status?user_id=${userId}`,
       );
 
       if (!response.ok) {
-        throw new Error('Failed to fetch ingestion status');
+        throw new Error("Failed to fetch ingestion status");
       }
 
       return await response.json();
     } catch (error) {
-      console.error('Error fetching ingestion status:', error);
+      console.error("Error fetching ingestion status:", error);
       throw error;
     }
   }
@@ -382,12 +403,12 @@ class AnimaService {
       const response = await fetch(`${API_URL}/api/health`);
 
       if (!response.ok) {
-        throw new Error('Backend is unhealthy');
+        throw new Error("Backend is unhealthy");
       }
 
       return await response.json();
     } catch (error) {
-      console.error('Health check failed:', error);
+      console.error("Health check failed:", error);
       throw error;
     }
   }

@@ -2,27 +2,29 @@
 Writing analysis API endpoints using Anima
 """
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
-from typing import Dict, List
-import logging
-import time
 import json
-import uuid
+import logging
 import re
+import time
+import uuid
+from typing import Dict, List
 
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+
+from ..agent.factory import AgentFactory
+from ..config import get_config
 from .models import (
     AnalysisRequest,
     AnalysisResponse,
     FeedbackItem,
-    FeedbackType,
     FeedbackSeverity,
-    StreamStatus,
+    FeedbackType,
+    StreamComplete,
     StreamFeedback,
-    StreamComplete
+    StreamStatus,
 )
-from .personas import personas_store, db as firestore_db
-from ..agent.factory import AgentFactory
-from ..config import get_config
+from .personas import db as firestore_db
+from .personas import personas_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", tags=["analysis"])
@@ -34,7 +36,7 @@ def get_persona(persona_id: str, user_id: str) -> Dict:
 
     if firestore_db is not None:
         # Try Firestore first
-        doc = firestore_db.collection('personas').document(persona_id).get()
+        doc = firestore_db.collection("personas").document(persona_id).get()
         if doc.exists:
             persona = doc.to_dict()
     else:
@@ -47,12 +49,16 @@ def get_persona(persona_id: str, user_id: str) -> Dict:
 
     # Verify ownership
     if persona.get("user_id") != user_id:
-        raise HTTPException(status_code=403, detail="Not authorized to use this persona")
+        raise HTTPException(
+            status_code=403, detail="Not authorized to use this persona"
+        )
 
     return persona
 
 
-def parse_json_feedback(response_text: str, persona_name: str, model: str = None) -> List[FeedbackItem]:
+def parse_json_feedback(
+    response_text: str, persona_name: str, model: str = None
+) -> List[FeedbackItem]:
     """
     Parse JSON feedback from Anima's structured output.
 
@@ -82,20 +88,22 @@ def parse_json_feedback(response_text: str, persona_name: str, model: str = None
         json_text = json_text.strip()
 
         # If response doesn't start with [ or {, try to find JSON array
-        if not json_text.startswith('[') and not json_text.startswith('{'):
+        if not json_text.startswith("[") and not json_text.startswith("{"):
             # Find first [ and last ] to extract JSON array
-            start_idx = json_text.find('[')
-            end_idx = json_text.rfind(']')
+            start_idx = json_text.find("[")
+            end_idx = json_text.rfind("]")
             if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                json_text = json_text[start_idx:end_idx + 1]
+                json_text = json_text[start_idx : end_idx + 1]
                 logger.info(f"Extracted JSON array from response (removed preamble)")
             else:
                 # Try to find JSON object
-                start_idx = json_text.find('{')
-                end_idx = json_text.rfind('}')
+                start_idx = json_text.find("{")
+                end_idx = json_text.rfind("}")
                 if start_idx != -1 and end_idx != -1 and end_idx > start_idx:
-                    json_text = json_text[start_idx:end_idx + 1]
-                    logger.info(f"Extracted JSON object from response (removed preamble)")
+                    json_text = json_text[start_idx : end_idx + 1]
+                    logger.info(
+                        f"Extracted JSON object from response (removed preamble)"
+                    )
 
         # Parse JSON response
         feedback_data = json.loads(json_text)
@@ -106,7 +114,7 @@ def parse_json_feedback(response_text: str, persona_name: str, model: str = None
             # If it's wrapped in a key, try to extract the array
             # Prioritize 'feedback' since that's what our strict schema uses
             extracted = False
-            for key in ['feedback', 'items', 'analysis', 'response']:
+            for key in ["feedback", "items", "analysis", "response"]:
                 if key in feedback_data and isinstance(feedback_data[key], list):
                     feedback_data = feedback_data[key]
                     logger.info(f"Extracted feedback array from '{key}' wrapper")
@@ -114,7 +122,11 @@ def parse_json_feedback(response_text: str, persona_name: str, model: str = None
                     break
 
             # If it's a single feedback object (Kimi sometimes returns this), wrap in array
-            if not extracted and ('text' in feedback_data or 'content' in feedback_data or 'type' in feedback_data):
+            if not extracted and (
+                "text" in feedback_data
+                or "content" in feedback_data
+                or "type" in feedback_data
+            ):
                 logger.info("Converting single feedback object to array")
                 feedback_data = [feedback_data]
 
@@ -126,109 +138,141 @@ def parse_json_feedback(response_text: str, persona_name: str, model: str = None
         for i, item in enumerate(feedback_data):
             try:
                 logger.info(f"Parsing item {i}: keys={list(item.keys())}")
-                logger.info(f"Item {i} sample: type={item.get('type')}, title={item.get('title', '')[:50]}")
+                logger.info(
+                    f"Item {i} sample: type={item.get('type')}, title={item.get('title', '')[:50]}"
+                )
                 # Log content field specifically
-                content_value = item.get('content', '')
-                logger.info(f"Item {i} content length: {len(content_value)}, preview: {content_value[:100] if content_value else '[EMPTY]'}")
+                content_value = item.get("content", "")
+                logger.info(
+                    f"Item {i} content length: {len(content_value)}, preview: {content_value[:100] if content_value else '[EMPTY]'}"
+                )
 
                 # Handle both expected schema and actual model output
                 # Model uses many different field names - check all variants
                 # For content field, try: content, description, feedback, recommendation, action, suggestion, issue, rationale
-                content = (item.get('content') or
-                          item.get('text') or  # Kimi sometimes uses this
-                          item.get('description') or  # Kimi uses this
-                          item.get('feedback') or
-                          item.get('recommendation') or
-                          item.get('action') or
-                          item.get('suggestion') or
-                          item.get('rationale') or '')
+                content = (
+                    item.get("content")
+                    or item.get("text")  # Kimi sometimes uses this
+                    or item.get("description")  # Kimi uses this
+                    or item.get("feedback")
+                    or item.get("recommendation")
+                    or item.get("action")
+                    or item.get("suggestion")
+                    or item.get("rationale")
+                    or ""
+                )
 
                 # For title field, try: title, item, issue, area, location
-                title = (item.get('title') or
-                        item.get('item') or
-                        item.get('issue') or
-                        item.get('area') or
-                        item.get('location') or
-                        'Feedback')
+                title = (
+                    item.get("title")
+                    or item.get("item")
+                    or item.get("issue")
+                    or item.get("area")
+                    or item.get("location")
+                    or "Feedback"
+                )
 
                 # For sources field, try: corpus_references, grounding, reference
-                sources = (item.get('corpus_references') or
-                          item.get('grounding') or
-                          item.get('reference') or [])
+                sources = (
+                    item.get("corpus_references")
+                    or item.get("grounding")
+                    or item.get("reference")
+                    or []
+                )
 
                 # For positions field, try: text_positions, positions
-                raw_positions = item.get('text_positions') or item.get('positions') or []
+                raw_positions = (
+                    item.get("text_positions") or item.get("positions") or []
+                )
                 positions = []
                 if isinstance(raw_positions, list):
                     for pos in raw_positions:
-                        if isinstance(pos, dict) and 'start' in pos and 'end' in pos and 'text' in pos:
+                        if (
+                            isinstance(pos, dict)
+                            and "start" in pos
+                            and "end" in pos
+                            and "text" in pos
+                        ):
                             from .models import TextPosition
-                            positions.append(TextPosition(
-                                start=pos['start'],
-                                end=pos['end'],
-                                text=pos['text']
-                            ))
+
+                            positions.append(
+                                TextPosition(
+                                    start=pos["start"], end=pos["end"], text=pos["text"]
+                                )
+                            )
 
                 # For corpus_sources field - actual quoted passages from corpus
-                raw_corpus_sources = item.get('corpus_sources') or []
+                raw_corpus_sources = item.get("corpus_sources") or []
                 corpus_sources = []
                 if isinstance(raw_corpus_sources, list):
                     for src in raw_corpus_sources:
-                        if isinstance(src, dict) and 'text' in src:
+                        if isinstance(src, dict) and "text" in src:
                             from .models import CorpusSource
-                            corpus_sources.append(CorpusSource(
-                                text=src.get('text', ''),
-                                source_file=src.get('source_file'),
-                                relevance=src.get('relevance')
-                            ))
+
+                            corpus_sources.append(
+                                CorpusSource(
+                                    text=src.get("text", ""),
+                                    source_file=src.get("source_file"),
+                                    relevance=src.get("relevance"),
+                                )
+                            )
 
                 # Handle Kimi's flat format where source_file/relevance are directly on item
-                if not corpus_sources and item.get('source_file'):
+                if not corpus_sources and item.get("source_file"):
                     from .models import CorpusSource
-                    corpus_sources.append(CorpusSource(
-                        text=content[:200] if content else '',  # Use content as the text
-                        source_file=item.get('source_file'),
-                        relevance=item.get('relevance')
-                    ))
+
+                    corpus_sources.append(
+                        CorpusSource(
+                            text=content[:200]
+                            if content
+                            else "",  # Use content as the text
+                            source_file=item.get("source_file"),
+                            relevance=item.get("relevance"),
+                        )
+                    )
 
                 # Validate and create FeedbackItem
                 # Handle unknown feedback types by falling back to 'suggestion'
-                raw_type = item.get('type', 'suggestion')
+                raw_type = item.get("type", "suggestion")
                 try:
                     feedback_type = FeedbackType(raw_type)
                 except ValueError:
-                    logger.warning(f"Unknown feedback type '{raw_type}', falling back to 'suggestion'")
+                    logger.warning(
+                        f"Unknown feedback type '{raw_type}', falling back to 'suggestion'"
+                    )
                     feedback_type = FeedbackType.SUGGESTION
 
                 # Handle severity mapping (Kimi uses minor/moderate/major)
-                raw_severity = item.get('severity', 'medium')
+                raw_severity = item.get("severity", "medium")
                 severity_map = {
-                    'minor': 'low',
-                    'moderate': 'medium',
-                    'major': 'high',
-                    'critical': 'high',
+                    "minor": "low",
+                    "moderate": "medium",
+                    "major": "high",
+                    "critical": "high",
                 }
                 mapped_severity = severity_map.get(raw_severity, raw_severity)
                 try:
                     severity = FeedbackSeverity(mapped_severity)
                 except ValueError:
-                    logger.warning(f"Unknown severity '{raw_severity}', falling back to 'medium'")
+                    logger.warning(
+                        f"Unknown severity '{raw_severity}', falling back to 'medium'"
+                    )
                     severity = FeedbackSeverity.MEDIUM
 
                 feedback_items.append(
                     FeedbackItem(
                         id=str(uuid.uuid4()),
                         type=feedback_type,
-                        category=item.get('category', 'general'),
+                        category=item.get("category", "general"),
                         title=title[:100],  # Limit title length
                         content=content,
                         severity=severity,
-                        confidence=float(item.get('confidence', 0.7)),
+                        confidence=float(item.get("confidence", 0.7)),
                         sources=sources if isinstance(sources, list) else [],
                         corpus_sources=corpus_sources,
-                        position=item.get('position'),
+                        position=item.get("position"),
                         positions=positions,
-                        model=model
+                        model=model,
                     )
                 )
             except Exception as e:
@@ -244,11 +288,14 @@ def parse_json_feedback(response_text: str, persona_name: str, model: str = None
 
         # Fallback: try to extract any JSON array from the text
         import re
-        json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+
+        json_match = re.search(r"\[.*\]", response_text, re.DOTALL)
         if json_match:
             try:
                 feedback_data = json.loads(json_match.group(0))
-                return parse_json_feedback(json.dumps(feedback_data), persona_name, model)
+                return parse_json_feedback(
+                    json.dumps(feedback_data), persona_name, model
+                )
             except:
                 pass
 
@@ -278,17 +325,20 @@ async def analyze_writing(request: AnalysisRequest):
         # This allows the BaseAgent to find it when it calls config.get_persona()
         if request.persona_id not in config.personas:
             from ..config import PersonaConfig
+
             persona_config = PersonaConfig(
                 name=persona["name"],
                 corpus_path="",  # Not needed for dynamic personas
                 collection_name=persona["collection_name"],
-                description=persona.get("description", "")
+                description=persona.get("description", ""),
             )
             config.personas[request.persona_id] = persona_config
 
-        # Get the model from persona settings, fallback to config primary
-        selected_model = persona.get("model", config.model.primary)
-        logger.info(f"Using model: {selected_model} for persona: {persona['name']}")
+        # Get the model: prefer request override, then persona setting, then config primary
+        selected_model = request.model or persona.get("model") or config.model.primary
+        logger.info(
+            f"Using model: {selected_model} for persona: {persona['name']} (override: {request.model})"
+        )
 
         # Create agent using factory with persona's selected model
         agent = AgentFactory.create(
@@ -320,18 +370,24 @@ async def analyze_writing(request: AnalysisRequest):
             # Convert feedback history to conversation format
             for item in request.context.feedback_history[-3:]:  # Last 3 exchanges
                 if item.get("role") == "user":
-                    conversation_history.append({"role": "user", "content": item["content"]})
+                    conversation_history.append(
+                        {"role": "user", "content": item["content"]}
+                    )
                 elif item.get("role") == "assistant":
-                    conversation_history.append({"role": "assistant", "content": item["content"]})
+                    conversation_history.append(
+                        {"role": "assistant", "content": item["content"]}
+                    )
 
         result = agent.respond(query, conversation_history=conversation_history)
 
         # Parse JSON feedback
         response_text = result.get("response", "")
-        feedback_items = parse_json_feedback(response_text, persona["name"], selected_model)
+        feedback_items = parse_json_feedback(
+            response_text, persona["name"], selected_model
+        )
 
         # Limit to max items
-        feedback_items = feedback_items[:request.max_feedback_items]
+        feedback_items = feedback_items[: request.max_feedback_items]
 
         processing_time = time.time() - start_time
 
@@ -342,9 +398,9 @@ async def analyze_writing(request: AnalysisRequest):
             metadata={
                 "iterations": result.get("iteration_count", 0),
                 "tool_calls": result.get("total_tool_calls", 0),
-                "model": config.model.primary
+                "model": config.model.primary,
             },
-            processing_time=processing_time
+            processing_time=processing_time,
         )
 
     except Exception as e:
@@ -368,10 +424,9 @@ async def analyze_writing_stream(websocket: WebSocket):
         try:
             request = AnalysisRequest(**request_dict)
         except Exception as e:
-            await websocket.send_json({
-                "type": "error",
-                "message": f"Invalid request: {str(e)}"
-            })
+            await websocket.send_json(
+                {"type": "error", "message": f"Invalid request: {str(e)}"}
+            )
             await websocket.close()
             return
 
@@ -379,17 +434,13 @@ async def analyze_writing_stream(websocket: WebSocket):
         try:
             persona = get_persona(request.persona_id, request.user_id)
             if not persona:
-                await websocket.send_json({
-                    "type": "error",
-                    "message": "Persona not found"
-                })
+                await websocket.send_json(
+                    {"type": "error", "message": "Persona not found"}
+                )
                 await websocket.close()
                 return
         except HTTPException as e:
-            await websocket.send_json({
-                "type": "error",
-                "message": e.detail
-            })
+            await websocket.send_json({"type": "error", "message": e.detail})
             await websocket.close()
             return
 
@@ -397,10 +448,7 @@ async def analyze_writing_stream(websocket: WebSocket):
 
         # Send initial status
         await websocket.send_json(
-            StreamStatus(
-                message="Initializing Anima...",
-                progress=0.1
-            ).dict()
+            StreamStatus(message="Initializing Anima...", progress=0.1).dict()
         )
 
         # Get configuration and create agent with JSON mode
@@ -410,19 +458,22 @@ async def analyze_writing_stream(websocket: WebSocket):
         # This allows the BaseAgent to find it when it calls config.get_persona()
         if request.persona_id not in config.personas:
             from ..config import PersonaConfig
+
             persona_config = PersonaConfig(
                 name=persona["name"],
                 corpus_path="",  # Not needed for dynamic personas
                 collection_name=persona["collection_name"],
-                description=persona.get("description", "")
+                description=persona.get("description", ""),
             )
             config.personas[request.persona_id] = persona_config
 
-        # Get the model from persona settings, fallback to config primary
-        selected_model = persona.get("model", config.model.primary)
-        logger.info(f"Using model: {selected_model} for persona: {persona['name']}")
+        # Get the model: prefer request override, then persona setting, then config primary
+        selected_model = request.model or persona.get("model") or config.model.primary
+        logger.info(
+            f"Using model: {selected_model} for persona: {persona['name']} (override: {request.model})"
+        )
 
-        # Create agent using factory with persona's selected model
+        # Create agent using factory with selected model
         agent = AgentFactory.create(
             model_name=selected_model,
             persona_id=request.persona_id,
@@ -436,7 +487,7 @@ async def analyze_writing_stream(websocket: WebSocket):
         await websocket.send_json(
             StreamStatus(
                 message=f"Anima ready ({selected_model}), starting analysis...",
-                progress=0.2
+                progress=0.2,
             ).dict()
         )
 
@@ -458,22 +509,28 @@ async def analyze_writing_stream(websocket: WebSocket):
         if request.context and request.context.feedback_history:
             for item in request.context.feedback_history[-3:]:
                 if item.get("role") == "user":
-                    conversation_history.append({"role": "user", "content": item["content"]})
+                    conversation_history.append(
+                        {"role": "user", "content": item["content"]}
+                    )
                 elif item.get("role") == "assistant":
-                    conversation_history.append({"role": "assistant", "content": item["content"]})
+                    conversation_history.append(
+                        {"role": "assistant", "content": item["content"]}
+                    )
 
         # Use streaming if available
         result = None
-        if hasattr(agent, 'respond_stream'):
+        if hasattr(agent, "respond_stream"):
             # Stream from agent
-            for chunk in agent.respond_stream(query, conversation_history=conversation_history):
+            for chunk in agent.respond_stream(
+                query, conversation_history=conversation_history
+            ):
                 if chunk.get("type") == "status":
                     # Send status updates
                     await websocket.send_json(
                         StreamStatus(
                             message=chunk.get("message", "Processing..."),
                             tool=chunk.get("tool"),
-                            progress=0.5  # Mid-progress
+                            progress=0.5,  # Mid-progress
                         ).dict()
                     )
                 elif chunk.get("type") == "text":
@@ -486,27 +543,25 @@ async def analyze_writing_stream(websocket: WebSocket):
             # Fallback to non-streaming
             await websocket.send_json(
                 StreamStatus(
-                    message="Analyzing with corpus retrieval...",
-                    progress=0.5
+                    message="Analyzing with corpus retrieval...", progress=0.5
                 ).dict()
             )
             result = agent.respond(query, conversation_history=conversation_history)
 
         # Parse JSON feedback
         await websocket.send_json(
-            StreamStatus(
-                message="Parsing structured feedback...",
-                progress=0.8
-            ).dict()
+            StreamStatus(message="Parsing structured feedback...", progress=0.8).dict()
         )
 
         # Safety check - if result is None, agent didn't complete properly
         if result is None:
             logger.error("Agent did not return a result - may have stopped early")
-            await websocket.send_json({
-                "type": "error",
-                "message": "Agent did not return feedback. Try again."
-            })
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": "Agent did not return feedback. Try again.",
+                }
+            )
             await websocket.close()
             return
 
@@ -515,30 +570,36 @@ async def analyze_writing_stream(websocket: WebSocket):
         logger.info(f"Response preview (first 1000 chars): {response_text[:1000]}")
 
         try:
-            feedback_items = parse_json_feedback(response_text, persona["name"], selected_model)
+            feedback_items = parse_json_feedback(
+                response_text, persona["name"], selected_model
+            )
             logger.info(f"Parsed {len(feedback_items)} feedback items")
         except Exception as parse_error:
             logger.error(f"Failed to parse feedback: {parse_error}")
-            await websocket.send_json({
-                "type": "error",
-                "message": f"Failed to parse feedback: {str(parse_error)}"
-            })
+            await websocket.send_json(
+                {
+                    "type": "error",
+                    "message": f"Failed to parse feedback: {str(parse_error)}",
+                }
+            )
             await websocket.close()
             return
 
-        feedback_items = feedback_items[:request.max_feedback_items]
+        feedback_items = feedback_items[: request.max_feedback_items]
         logger.info(f"After max limit: {len(feedback_items)} feedback items")
 
         # Stream each feedback item
         for i, item in enumerate(feedback_items):
             try:
-                logger.info(f"Sending feedback item {i+1}/{len(feedback_items)}: {item.title}")
-                await websocket.send_json(
-                    StreamFeedback(item=item).dict()
+                logger.info(
+                    f"Sending feedback item {i + 1}/{len(feedback_items)}: {item.title}"
                 )
-                logger.debug(f"Successfully sent item {i+1}")
+                await websocket.send_json(StreamFeedback(item=item).dict())
+                logger.debug(f"Successfully sent item {i + 1}")
             except Exception as e:
-                logger.error(f"Error sending feedback item {i+1}: {e}, stopping stream")
+                logger.error(
+                    f"Error sending feedback item {i + 1}: {e}, stopping stream"
+                )
                 return
 
         # Send completion
@@ -547,8 +608,7 @@ async def analyze_writing_stream(websocket: WebSocket):
             logger.info(f"Sending completion message")
             await websocket.send_json(
                 StreamComplete(
-                    total_items=len(feedback_items),
-                    processing_time=processing_time
+                    total_items=len(feedback_items), processing_time=processing_time
                 ).dict()
             )
             await websocket.close()
@@ -561,10 +621,9 @@ async def analyze_writing_stream(websocket: WebSocket):
     except Exception as e:
         logger.error(f"Error in streaming analysis: {e}")
         try:
-            await websocket.send_json({
-                "type": "error",
-                "message": f"Analysis failed: {str(e)}"
-            })
+            await websocket.send_json(
+                {"type": "error", "message": f"Analysis failed: {str(e)}"}
+            )
             await websocket.close()
         except:
             pass

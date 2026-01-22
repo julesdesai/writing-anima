@@ -2,11 +2,11 @@
 
 import logging
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
-from .tools import CorpusSearchTool, IncrementalReasoningTool
 from ..config import get_config
+from .tools import CorpusSearchTool, IncrementalReasoningTool
 
 logger = logging.getLogger(__name__)
 
@@ -32,9 +32,7 @@ class BaseAgent(ABC):
         self.max_iterations = 20
         self.search_tool = CorpusSearchTool(self.persona.collection_name, config)
         self.reasoning_tool = IncrementalReasoningTool(
-            self.persona.collection_name,
-            self.persona.name,
-            config
+            self.persona.collection_name, self.persona.name, config
         )
 
     @abstractmethod
@@ -133,23 +131,41 @@ class BaseAgent(ABC):
             prompt += "\n\n" + model_specific.format(user_name=self.user_name)
 
         # Add style pack for grounding (diverse writing samples)
+        logger.info(f"Style pack enabled: {self.config.retrieval.style_pack_enabled}")
         if self.config.retrieval.style_pack_enabled:
             style_pack = self.search_tool.get_style_pack()
+            logger.info(
+                f"Style pack retrieved: {len(style_pack) if style_pack else 0} samples"
+            )
             if style_pack:
-                prompt += "\n\n" + "="*70
-                prompt += f"\n\nSTYLE GROUNDING - {self.user_name}'s Writing Examples:\n"
-                prompt += "The following are representative samples of how {user_name} writes. Use these to match their style, tone, and communication patterns.\n\n"
+                prompt += "\n\n" + "=" * 70
+                prompt += (
+                    f"\n\nSTYLE GROUNDING - {self.user_name}'s Writing Examples:\n"
+                )
+                prompt += f"The following are representative samples of how {self.user_name} writes. Use these to match their style, tone, and communication patterns.\n\n"
 
                 for i, sample in enumerate(style_pack, 1):
                     source = sample["metadata"].get("source", "unknown")
+                    file_path = sample["metadata"].get("file_path", "")
+                    # Extract filename from path for better reference
+                    if file_path:
+                        import os
+
+                        source = os.path.basename(file_path)
                     prompt += f"\n--- Example {i} (from {source}) ---\n"
-                    # Truncate if too long
+                    # Use longer samples to capture style better (1000 chars)
                     text = sample["text"]
-                    if len(text) > 500:
-                        text = text[:500] + "..."
+                    if len(text) > 1000:
+                        text = text[:1000] + "..."
                     prompt += text + "\n"
 
-                prompt += "\n" + "="*70
+                prompt += "\n" + "=" * 70
+                prompt += f"\n\nCRITICAL STYLE INSTRUCTION: Your feedback must be written in the SAME VOICE, TONE, and STYLE as the examples above. "
+                prompt += f"Emulate how {self.user_name} writes - their sentence structure, vocabulary choices, rhetorical patterns, and communication style. "
+                prompt += "Do not write generic feedback. Write feedback AS IF you are this author critiquing the work.\n"
+                logger.info(
+                    f"Style pack added to system prompt ({len(style_pack)} examples)"
+                )
 
         return prompt
 
@@ -194,7 +210,9 @@ class BaseAgent(ABC):
         elif tool_use["name"] == "check_incremental_reasoning":
             try:
                 result = self.reasoning_tool.check_and_guide(**tool_use["input"])
-                logger.debug(f"Incremental reasoning check: OOD={result.get('is_ood', False)}")
+                logger.debug(
+                    f"Incremental reasoning check: OOD={result.get('is_ood', False)}"
+                )
                 return result
             except Exception as e:
                 logger.error(f"Error executing check_incremental_reasoning: {e}")
@@ -203,7 +221,9 @@ class BaseAgent(ABC):
             logger.error(f"Unknown tool: {tool_use['name']}")
             return {"error": f"Unknown tool: {tool_use['name']}"}
 
-    def respond(self, query: str, conversation_history: Optional[List[Dict]] = None) -> Dict:
+    def respond(
+        self, query: str, conversation_history: Optional[List[Dict]] = None
+    ) -> Dict:
         """
         Main agent loop - model self-orchestrates retrieval.
 
@@ -215,7 +235,7 @@ class BaseAgent(ABC):
             Dict with response, tool_calls, iterations, and model name
         """
         # Use custom prompt file if agent has one
-        prompt_file = getattr(self, 'prompt_file', 'base.txt')
+        prompt_file = getattr(self, "prompt_file", "base.txt")
         system_prompt = self._build_system_prompt(prompt_file)
 
         # Start with conversation history if provided

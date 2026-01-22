@@ -2,14 +2,16 @@
 Pydantic models for API request/response validation
 """
 
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, Field
 
 
 class FeedbackType(str, Enum):
     """Types of feedback"""
+
     SUGGESTION = "suggestion"
     ISSUE = "issue"
     PRAISE = "praise"
@@ -18,6 +20,7 @@ class FeedbackType(str, Enum):
 
 class FeedbackSeverity(str, Enum):
     """Severity levels for feedback"""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -26,6 +29,7 @@ class FeedbackSeverity(str, Enum):
 # Persona Models
 class PersonaCreate(BaseModel):
     """Request model for creating a persona"""
+
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     user_id: str = Field(..., description="Firebase UID")
@@ -34,6 +38,7 @@ class PersonaCreate(BaseModel):
 
 class PersonaResponse(BaseModel):
     """Response model for persona"""
+
     id: str
     name: str
     description: Optional[str]
@@ -42,12 +47,14 @@ class PersonaResponse(BaseModel):
     model: str = "gpt-5"
     corpus_file_count: int = 0
     chunk_count: int = 0
+    corpus_available: bool = True  # Whether the Qdrant collection exists
     created_at: datetime
     updated_at: datetime
 
 
 class PersonaUpdate(BaseModel):
     """Request model for updating a persona"""
+
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = Field(None, max_length=500)
     model: Optional[str] = Field(None, description="LLM model ID for this persona")
@@ -55,6 +62,7 @@ class PersonaUpdate(BaseModel):
 
 class AvailableModel(BaseModel):
     """Model available for selection"""
+
     id: str
     name: str
     provider: str
@@ -63,11 +71,13 @@ class AvailableModel(BaseModel):
 
 class AvailableModelsResponse(BaseModel):
     """Response containing available models"""
+
     models: List[AvailableModel]
 
 
 class PersonaList(BaseModel):
     """List of personas"""
+
     personas: List[PersonaResponse]
     total: int
 
@@ -75,6 +85,7 @@ class PersonaList(BaseModel):
 # Corpus Models
 class CorpusFile(BaseModel):
     """Corpus file metadata"""
+
     filename: str
     size: int
     uploaded_at: datetime
@@ -83,6 +94,7 @@ class CorpusFile(BaseModel):
 
 class CorpusUploadResponse(BaseModel):
     """Response for corpus upload"""
+
     persona_id: str
     files_uploaded: int
     total_size: int
@@ -91,6 +103,7 @@ class CorpusUploadResponse(BaseModel):
 
 class IngestionStatus(BaseModel):
     """Status of corpus ingestion"""
+
     persona_id: str
     status: str  # "pending", "processing", "completed", "failed"
     progress: float  # 0.0 to 1.0
@@ -102,6 +115,7 @@ class IngestionStatus(BaseModel):
 # Analysis Models
 class AnalysisContext(BaseModel):
     """Context for writing analysis"""
+
     purpose: Optional[str] = None
     criteria: List[str] = Field(default_factory=list)
     feedback_history: List[Dict[str, Any]] = Field(default_factory=list)
@@ -109,15 +123,18 @@ class AnalysisContext(BaseModel):
 
 class AnalysisRequest(BaseModel):
     """Request for writing analysis"""
+
     content: str = Field(..., min_length=1)
     persona_id: str
     user_id: str
+    model: Optional[str] = Field(None, description="Model override from frontend")
     context: Optional[AnalysisContext] = None
     max_feedback_items: int = Field(default=10, ge=1, le=50)
 
 
 class TextPosition(BaseModel):
     """Position information for text highlighting"""
+
     start: int  # Start character index
     end: int  # End character index
     text: str  # The actual text being referenced
@@ -125,6 +142,7 @@ class TextPosition(BaseModel):
 
 class CorpusSource(BaseModel):
     """A source passage from the corpus that grounds feedback"""
+
     text: str  # The actual text from the corpus
     source_file: Optional[str] = None  # Source file name
     relevance: Optional[str] = None  # Why this source is relevant
@@ -132,6 +150,7 @@ class CorpusSource(BaseModel):
 
 class FeedbackItem(BaseModel):
     """Single feedback item"""
+
     id: str
     type: FeedbackType
     category: str
@@ -140,14 +159,21 @@ class FeedbackItem(BaseModel):
     severity: FeedbackSeverity
     confidence: float = Field(..., ge=0.0, le=1.0)
     sources: List[str] = Field(default_factory=list)  # Corpus chunk IDs (deprecated)
-    corpus_sources: List[CorpusSource] = Field(default_factory=list)  # Actual corpus passages
+    corpus_sources: List[CorpusSource] = Field(
+        default_factory=list
+    )  # Actual corpus passages
     position: Optional[int] = None  # Deprecated: use positions instead
-    positions: List[TextPosition] = Field(default_factory=list)  # Text positions for highlighting
-    model: Optional[str] = None  # Model that generated this feedback (e.g., "gpt-5", "kimi-k2")
+    positions: List[TextPosition] = Field(
+        default_factory=list
+    )  # Text positions for highlighting
+    model: Optional[str] = (
+        None  # Model that generated this feedback (e.g., "gpt-5", "kimi-k2")
+    )
 
 
 class AnalysisResponse(BaseModel):
     """Response from writing analysis"""
+
     persona_id: str
     persona_name: str
     feedback: List[FeedbackItem]
@@ -158,6 +184,7 @@ class AnalysisResponse(BaseModel):
 # Streaming Models
 class StreamStatus(BaseModel):
     """Status update during streaming"""
+
     type: str = "status"
     message: str
     tool: Optional[str] = None
@@ -166,12 +193,14 @@ class StreamStatus(BaseModel):
 
 class StreamFeedback(BaseModel):
     """Feedback chunk during streaming"""
+
     type: str = "feedback"
     item: FeedbackItem
 
 
 class StreamComplete(BaseModel):
     """Completion message for streaming"""
+
     type: str = "complete"
     total_items: int
     processing_time: float
@@ -180,6 +209,7 @@ class StreamComplete(BaseModel):
 # Health Check
 class HealthResponse(BaseModel):
     """Health check response"""
+
     status: str
     services: Dict[str, str]
     version: str = "1.0.0"
