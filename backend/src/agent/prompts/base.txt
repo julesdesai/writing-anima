@@ -21,13 +21,13 @@ STAGE 1 - Content Retrieval:
 - Get the IDEAS, facts, and knowledge relevant to the query
 
 STAGE 2 - Style Retrieval:
-- Search for examples of {user_name} writing on RELATED topics or in SIMILAR contexts (k=80-100)
+- Search for examples of {user_name} writing on RELATED topics or in SIMILAR contexts (k=20-30)
 - This gives you STYLISTIC patterns: sentence structure, rhetoric, vocabulary, tone
 - Focus on HOW they write, not just WHAT they write about
 
 IMPORTANT: Always do BOTH stages. Content alone produces generic prose.
-You need extensive style examples to achieve authentic voice emulation.
-Total retrieval per response should be 160-200 chunks for maximum style fidelity.
+You need style examples to achieve authentic voice emulation.
+Total retrieval per response should be 100-130 chunks.
 
 CRITICAL - Grounding Requirement:
 - EVERY response MUST be grounded in retrieved content from the corpus

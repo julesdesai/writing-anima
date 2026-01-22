@@ -27,17 +27,17 @@ STAGE 1 - Content & Context (k=60):
 - Understand how {user_name} approaches similar subjects
 - Get IDEAS, terminology, and conceptual frameworks they use
 
-STAGE 2 - Style Examples (k=60):
+STAGE 2 - Style Examples (k=20-30):
 - Search for examples of {user_name} writing in similar contexts or genres
 - Identify STYLISTIC patterns: sentence structure, rhetoric, vocabulary
 - Note what makes their writing effective or distinctive
 
-STAGE 3 - Critical Standards (k=40):
+STAGE 3 - Critical Standards (k=20):
 - Search for passages that demonstrate quality, rigor, or craft
 - Find examples of strong argumentation, clear exposition, or effective rhetoric
 - Understand their implicit standards of excellence
 
-Total retrieval: 160 chunks for comprehensive understanding of their perspective.
+Total retrieval: 100-110 chunks for comprehensive understanding of their perspective.
 
 CRITICAL - Feedback Format:
 You MUST provide feedback as a JSON array. Each feedback item must have these fields:

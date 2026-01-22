@@ -2,14 +2,14 @@
 
 import logging
 import os
-from typing import List, Optional, Dict, Any
+from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
-from ..database.vector_db import VectorDatabase
-from ..database.schema import SearchResult, SearchFilters, SourceType
-from ..corpus.embed import EmbeddingGenerator
 from ..config import get_config
+from ..corpus.embed import EmbeddingGenerator
+from ..database.schema import SearchFilters, SearchResult, SourceType
+from ..database.vector_db import VectorDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -78,17 +78,21 @@ class CorpusSearchTool:
             key = f"{source}:{file_path}"
 
             if key not in seen_sources or len(diverse_samples) < size:
-                diverse_samples.append({
-                    "text": result.text,
-                    "metadata": result.metadata,
-                    "similarity": result.similarity,
-                })
+                diverse_samples.append(
+                    {
+                        "text": result.text,
+                        "metadata": result.metadata,
+                        "similarity": result.similarity,
+                    }
+                )
                 seen_sources.add(key)
 
             if len(diverse_samples) >= size:
                 break
 
-        logger.info(f"Style pack created with {len(diverse_samples)} samples from {len(seen_sources)} sources")
+        logger.info(
+            f"Style pack created with {len(diverse_samples)} samples from {len(seen_sources)} sources"
+        )
         self._style_pack_cache = diverse_samples
         return diverse_samples
 
@@ -142,22 +146,24 @@ class CorpusSearchTool:
         )
 
         # Note: Hybrid search uses RRF scores (or semantic scores), ranked by relevance
-        logger.info(
-            f"Hybrid search '{query}' (k={k}): Found {len(results)} results"
-        )
+        logger.info(f"Hybrid search '{query}' (k={k}): Found {len(results)} results")
 
         if results:
             logger.info(
                 f"  Top result score: {results[0].similarity:.3f}, "
-                f"Avg score: {sum(r.similarity for r in results)/len(results):.3f}"
+                f"Avg score: {sum(r.similarity for r in results) / len(results):.3f}"
             )
 
             # Log preview of top 3 results for debugging
             logger.debug("Top 3 results:")
             for i, r in enumerate(results[:3], 1):
-                preview = r.text[:100].replace('\n', ' ')
-                source = r.metadata.get('source', 'unknown')
-                file_name = r.metadata.get('file_path', '').split('/')[-1] if r.metadata.get('file_path') else 'unknown'
+                preview = r.text[:100].replace("\n", " ")
+                source = r.metadata.get("source", "unknown")
+                file_name = (
+                    r.metadata.get("file_path", "").split("/")[-1]
+                    if r.metadata.get("file_path")
+                    else "unknown"
+                )
                 logger.debug(f"  {i}. [{source}/{file_name}] {preview}...")
 
         # Convert to dict format for tool response
@@ -174,7 +180,7 @@ class CorpusSearchTool:
         """Get tool definition for Claude API format"""
         return {
             "name": "search_corpus",
-            "description": "Search the user's writing corpus to retrieve examples of BOTH their ideas AND their writing style. Returns excerpts showing how they write, think, and express themselves. CRITICAL: Use k=80-100 to immerse yourself in their voice before generating responses. Higher k = better style emulation.",
+            "description": "Search the user's writing corpus to retrieve examples of BOTH their ideas AND their writing style. Returns excerpts showing how they write, think, and express themselves. Use k=60-80 for content retrieval and k=20-30 for style retrieval.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -184,7 +190,7 @@ class CorpusSearchTool:
                     },
                     "k": {
                         "type": "integer",
-                        "description": f"Number of results to return. USE 80-100 for deep style immersion. The more examples you retrieve, the better you can emulate their exact writing style. Max: {self.config.retrieval.max_k}.",
+                        "description": f"Number of results to return. Use 60-80 for content, 20-30 for style. Max: {self.config.retrieval.max_k}.",
                         "default": self.config.retrieval.default_k,
                     },
                     "time_range": {
@@ -204,7 +210,9 @@ class CorpusSearchTool:
                     "source_filter": {
                         "type": "array",
                         "description": "Optional filter by source type",
-                        "items": {"enum": ["email", "chat", "document", "code", "note"]},
+                        "items": {
+                            "enum": ["email", "chat", "document", "code", "note"]
+                        },
                     },
                 },
                 "required": ["query"],
@@ -217,7 +225,7 @@ class CorpusSearchTool:
             "type": "function",
             "function": {
                 "name": "search_corpus",
-                "description": "Search the user's writing corpus to retrieve examples of BOTH their ideas AND their writing style. Returns excerpts showing how they write, think, and express themselves. CRITICAL: Use k=80-100 to immerse yourself in their voice before generating responses. Higher k = better style emulation.",
+                "description": "Search the user's writing corpus to retrieve examples of BOTH their ideas AND their writing style. Returns excerpts showing how they write, think, and express themselves. Use k=60-80 for content retrieval and k=20-30 for style retrieval.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -227,7 +235,7 @@ class CorpusSearchTool:
                         },
                         "k": {
                             "type": "integer",
-                            "description": f"Number of results to return. USE 80-100 for deep style immersion. The more examples you retrieve, the better you can emulate their exact writing style. Max: {self.config.retrieval.max_k}",
+                            "description": f"Number of results to return. Use 60-80 for content, 20-30 for style. Max: {self.config.retrieval.max_k}",
                             "default": self.config.retrieval.default_k,
                         },
                         "time_range": {
@@ -277,7 +285,9 @@ class IncrementalReasoningTool:
         # Initialize OpenAI client for OOD checks
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            logger.warning("OPENAI_API_KEY not found - incremental reasoning tool disabled")
+            logger.warning(
+                "OPENAI_API_KEY not found - incremental reasoning tool disabled"
+            )
             self.client = None
         else:
             self.client = OpenAI(api_key=api_key)
@@ -293,15 +303,12 @@ class IncrementalReasoningTool:
             Dict with is_ood, confidence, guidance, and corpus_concepts
         """
         if not self.config.retrieval.incremental_mode.enabled:
-            return {
-                "is_ood": False,
-                "message": "Incremental mode is disabled"
-            }
+            return {"is_ood": False, "message": "Incremental mode is disabled"}
 
         if self.client is None:
             return {
                 "is_ood": False,
-                "error": "OpenAI client not initialized - check API key"
+                "error": "OpenAI client not initialized - check API key",
             }
 
         logger.info(f"Checking if query is OOD: '{query[:100]}...'")
@@ -316,7 +323,7 @@ class IncrementalReasoningTool:
             return {
                 "is_ood": False,
                 "confidence": ood_result["confidence"],
-                "message": "Query appears to be within corpus distribution. Use standard corpus search."
+                "message": "Query appears to be within corpus distribution. Use standard corpus search.",
             }
 
         # Step 3: Generate reasoning guidance
@@ -329,7 +336,7 @@ class IncrementalReasoningTool:
             "confidence": ood_result["confidence"],
             "guidance": guidance,
             "corpus_concepts": corpus_concepts,
-            "reasoning": ood_result.get("reasoning", "")
+            "reasoning": ood_result.get("reasoning", ""),
         }
 
     def _find_related_concepts(self, query: str) -> List[str]:
@@ -348,17 +355,14 @@ class IncrementalReasoningTool:
 
             # Search for related content
             max_concepts = self.config.retrieval.incremental_mode.max_corpus_concepts
-            results = self.db.search(
-                query_vector=query_embedding,
-                k=max_concepts
-            )
+            results = self.db.search(query_vector=query_embedding, k=max_concepts)
 
             # Extract key concepts/topics from top results
             concepts = []
             for result in results:
                 # Get a snippet to represent this concept
-                text = result.text[:200].replace('\n', ' ').strip()
-                source = result.metadata.get('source', 'unknown')
+                text = result.text[:200].replace("\n", " ").strip()
+                source = result.metadata.get("source", "unknown")
                 concepts.append(f"{text}... (from {source})")
 
             return concepts
@@ -378,7 +382,11 @@ class IncrementalReasoningTool:
         Returns:
             Dict with is_ood, confidence, and reasoning
         """
-        concepts_text = "\n".join([f"- {c}" for c in corpus_concepts]) if corpus_concepts else "No closely related content found."
+        concepts_text = (
+            "\n".join([f"- {c}" for c in corpus_concepts])
+            if corpus_concepts
+            else "No closely related content found."
+        )
 
         prompt = f"""You are analyzing whether a query can be directly answered from a person's writing corpus.
 
@@ -414,10 +422,11 @@ Respond in JSON format:
                 messages=[{"role": "user", "content": prompt}],
                 response_format={"type": "json_object"},
                 temperature=0.3,
-                max_tokens=300
+                max_tokens=300,
             )
 
             import json
+
             result = json.loads(response.choices[0].message.content)
 
             logger.debug(f"OOD check result: {result}")
@@ -428,14 +437,11 @@ Respond in JSON format:
             return {
                 "is_ood": False,
                 "confidence": 0.0,
-                "reasoning": f"Error during OOD check: {str(e)}"
+                "reasoning": f"Error during OOD check: {str(e)}",
             }
 
     def _generate_guidance(
-        self,
-        query: str,
-        corpus_concepts: List[str],
-        ood_result: Dict[str, Any]
+        self, query: str, corpus_concepts: List[str], ood_result: Dict[str, Any]
     ) -> str:
         """
         Generate natural language reasoning guidance for OOD query.
@@ -448,7 +454,11 @@ Respond in JSON format:
         Returns:
             Natural language guidance string
         """
-        concepts_list = "\n".join([f"- {c}" for c in corpus_concepts[:3]]) if corpus_concepts else "No directly related content found."
+        concepts_list = (
+            "\n".join([f"- {c}" for c in corpus_concepts[:3]])
+            if corpus_concepts
+            else "No directly related content found."
+        )
 
         guidance = f"""This query extends beyond your direct corpus content. To address it thoughtfully while maintaining your authentic voice:
 
