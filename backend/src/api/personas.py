@@ -146,11 +146,22 @@ def get_existing_collections() -> set:
         from qdrant_client import QdrantClient
 
         config = get_config()
-        client = QdrantClient(host=config.vector_db.host, port=config.vector_db.port)
-        collections = client.get_collections().collections
+        host = config.vector_db.host
 
-        config = get_config()
-        client = QdrantClient(host=config.vector_db.host, port=config.vector_db.port)
+        # Check if we're using a cloud URL (has https:// or contains cloud.qdrant.io)
+        is_cloud = host.startswith("https://") or "cloud.qdrant.io" in host
+
+        if is_cloud:
+            # For Qdrant Cloud, use URL parameter
+            if not host.startswith("https://"):
+                url = f"https://{host}:{config.vector_db.port}"
+            else:
+                url = host
+            client = QdrantClient(url=url, api_key=config.vector_db.api_key, https=True)
+        else:
+            # For local Qdrant, use host/port
+            client = QdrantClient(host=host, port=config.vector_db.port)
+
         collections = client.get_collections().collections
         return {c.name for c in collections}
     except Exception as e:
