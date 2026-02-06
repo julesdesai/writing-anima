@@ -347,7 +347,9 @@ async def analyze_writing(request: AnalysisRequest):
             config=config,
         )
         # Set JSON mode and prompt file for structured feedback
-        agent.use_json_mode = True
+        # Note: DeepSeek doesn't support strict JSON schema, so skip for deepseek agents
+        if "deepseek" not in selected_model.lower():
+            agent.use_json_mode = True
         agent.prompt_file = "writing_critic.txt"
 
         # Build analysis query with context
@@ -480,7 +482,9 @@ async def analyze_writing_stream(websocket: WebSocket):
             config=config,
         )
         # Set JSON mode and prompt file for structured feedback
-        agent.use_json_mode = True
+        # Note: DeepSeek doesn't support strict JSON schema, so skip for deepseek agents
+        if "deepseek" not in selected_model.lower():
+            agent.use_json_mode = True
         agent.prompt_file = "writing_critic.txt"
 
         # Send status

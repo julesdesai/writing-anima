@@ -60,6 +60,10 @@ model:
       name: GPT-5
       provider: openai
       description: OpenAI's most advanced model with superior reasoning
+    - id: deepseek-chat
+      name: DeepSeek V3
+      provider: deepseek
+      description: DeepSeek's V3 model with strong reasoning and tool use
     - id: kimi-k2
       name: Kimi K2
       provider: moonshot
@@ -82,7 +86,7 @@ model:
   deepseek:
     api_key_env: DEEPSEEK_API_KEY
     base_url: https://api.deepseek.com
-    model: deepseek-reasoner
+    model: deepseek-chat
     max_tokens: 4096
     temperature: 1.0
     max_iterations: 20
