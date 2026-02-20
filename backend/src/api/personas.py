@@ -155,9 +155,9 @@ def get_existing_collections() -> set:
         is_cloud = host.startswith("https://") or "cloud.qdrant.io" in host
 
         if is_cloud:
-            # For Qdrant Cloud, use URL parameter
+            # For Qdrant Cloud, use URL parameter (standard port 443)
             if not host.startswith("https://"):
-                url = f"https://{host}:{config.vector_db.port}"
+                url = f"https://{host}"
             else:
                 url = host
             client = QdrantClient(url=url, api_key=config.vector_db.api_key, https=True)

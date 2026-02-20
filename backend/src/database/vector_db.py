@@ -52,9 +52,9 @@ class VectorDatabase:
 
             if is_cloud:
                 # For Qdrant Cloud, use URL parameter with HTTPS
-                # Construct full URL if not already complete
+                # Cloud uses standard port 443, don't append the local port
                 if not host.startswith("https://"):
-                    url = f"https://{host}:{config.vector_db.port}"
+                    url = f"https://{host}"
                 else:
                     url = host
 
