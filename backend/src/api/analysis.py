@@ -16,6 +16,8 @@ from ..config import get_config
 from .models import (
     AnalysisRequest,
     AnalysisResponse,
+    ChatRequest,
+    ChatResponse,
     FeedbackItem,
     FeedbackSeverity,
     FeedbackType,
@@ -347,8 +349,13 @@ async def analyze_writing(request: AnalysisRequest):
             config=config,
         )
         # Set JSON mode and prompt file for structured feedback
-        # Note: DeepSeek doesn't support strict JSON schema, so skip for deepseek agents
-        if "deepseek" not in selected_model.lower():
+        # Note: DeepSeek/exo/openrouter don't support strict JSON schema, so skip for those agents
+        model_lower = selected_model.lower()
+        if (
+            "deepseek" not in model_lower
+            and "exo" not in model_lower
+            and "openrouter" not in model_lower
+        ):
             agent.use_json_mode = True
         agent.prompt_file = "writing_critic.txt"
 
@@ -482,8 +489,13 @@ async def analyze_writing_stream(websocket: WebSocket):
             config=config,
         )
         # Set JSON mode and prompt file for structured feedback
-        # Note: DeepSeek doesn't support strict JSON schema, so skip for deepseek agents
-        if "deepseek" not in selected_model.lower():
+        # Note: DeepSeek/exo/openrouter don't support strict JSON schema, so skip for those agents
+        model_lower = selected_model.lower()
+        if (
+            "deepseek" not in model_lower
+            and "exo" not in model_lower
+            and "openrouter" not in model_lower
+        ):
             agent.use_json_mode = True
         agent.prompt_file = "writing_critic.txt"
 
@@ -627,6 +639,175 @@ async def analyze_writing_stream(websocket: WebSocket):
         try:
             await websocket.send_json(
                 {"type": "error", "message": f"Analysis failed: {str(e)}"}
+            )
+            await websocket.close()
+        except:
+            pass
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat_with_persona(request: ChatRequest):
+    """
+    Chat with a persona in their voice. Uses base.txt prompt (conversational mode)
+    with corpus grounding — no structured feedback, just natural conversation.
+    """
+    persona = get_persona(request.persona_id, request.user_id)
+    if not persona:
+        raise HTTPException(status_code=404, detail="Persona not found")
+
+    try:
+        config = get_config()
+
+        # Add persona to config dynamically if not present
+        if request.persona_id not in config.personas:
+            from ..config import PersonaConfig
+
+            persona_config = PersonaConfig(
+                name=persona["name"],
+                corpus_path="",
+                collection_name=persona["collection_name"],
+                description=persona.get("description", ""),
+            )
+            config.personas[request.persona_id] = persona_config
+
+        selected_model = request.model or persona.get("model") or config.model.primary
+        logger.info(
+            f"Chat using model: {selected_model} for persona: {persona['name']}"
+        )
+
+        agent = AgentFactory.create(
+            model_name=selected_model,
+            persona_id=request.persona_id,
+            config=config,
+        )
+        # Conversational mode: use base.txt prompt, no JSON mode
+        # base.txt is the default prompt_file, so no need to set it
+
+        conversation_history = [
+            {"role": msg.role, "content": msg.content}
+            for msg in request.conversation_history
+        ]
+
+        result = agent.respond(
+            request.message, conversation_history=conversation_history
+        )
+
+        return ChatResponse(
+            response=result.get("response", ""),
+            persona_name=persona["name"],
+            persona_id=request.persona_id,
+        )
+
+    except Exception as e:
+        logger.error(f"Error in chat: {e}")
+        raise HTTPException(status_code=500, detail=f"Chat failed: {str(e)}")
+
+
+@router.websocket("/chat/stream")
+async def chat_with_persona_stream(websocket: WebSocket):
+    """
+    Chat with a persona via WebSocket with streaming text tokens.
+    Client sends: { message, persona_id, user_id, conversation_history, model? }
+    Server sends:
+      - {"type": "status", "message": str}       — tool/progress updates
+      - {"type": "token", "content": str}         — streamed text token
+      - {"type": "complete", "response": str}     — full response when done
+      - {"type": "error", "message": str}         — on failure
+    """
+    await websocket.accept()
+
+    try:
+        request_data = await websocket.receive_text()
+        request_dict = json.loads(request_data)
+
+        # Validate
+        message = request_dict.get("message", "").strip()
+        persona_id = request_dict.get("persona_id")
+        user_id = request_dict.get("user_id")
+        if not message or not persona_id or not user_id:
+            await websocket.send_json(
+                {"type": "error", "message": "Missing message, persona_id, or user_id"}
+            )
+            await websocket.close()
+            return
+
+        # Get persona
+        try:
+            persona = get_persona(persona_id, user_id)
+            if not persona:
+                await websocket.send_json(
+                    {"type": "error", "message": "Persona not found"}
+                )
+                await websocket.close()
+                return
+        except HTTPException as e:
+            await websocket.send_json({"type": "error", "message": e.detail})
+            await websocket.close()
+            return
+
+        config = get_config()
+
+        if persona_id not in config.personas:
+            from ..config import PersonaConfig
+
+            config.personas[persona_id] = PersonaConfig(
+                name=persona["name"],
+                corpus_path="",
+                collection_name=persona["collection_name"],
+                description=persona.get("description", ""),
+            )
+
+        selected_model = (
+            request_dict.get("model") or persona.get("model") or config.model.primary
+        )
+
+        agent = AgentFactory.create(
+            model_name=selected_model,
+            persona_id=persona_id,
+            config=config,
+        )
+
+        conversation_history = [
+            {"role": m["role"], "content": m["content"]}
+            for m in request_dict.get("conversation_history", [])
+        ]
+
+        await websocket.send_json({"type": "status", "message": "Thinking..."})
+
+        # Stream if agent supports it, otherwise fall back to non-streaming
+        if hasattr(agent, "respond_stream"):
+            full_response = ""
+            for chunk in agent.respond_stream(
+                message, conversation_history=conversation_history
+            ):
+                if chunk.get("type") == "text":
+                    full_response += chunk["content"]
+                    await websocket.send_json(
+                        {"type": "token", "content": chunk["content"]}
+                    )
+                elif chunk.get("type") == "status":
+                    await websocket.send_json(
+                        {"type": "status", "message": chunk.get("message", "")}
+                    )
+                elif chunk.get("type") == "result":
+                    full_response = chunk.get("response", full_response)
+
+            await websocket.send_json({"type": "complete", "response": full_response})
+        else:
+            result = agent.respond(message, conversation_history=conversation_history)
+            response_text = result.get("response", "")
+            await websocket.send_json({"type": "token", "content": response_text})
+            await websocket.send_json({"type": "complete", "response": response_text})
+
+        await websocket.close()
+
+    except WebSocketDisconnect:
+        logger.info("Chat WebSocket disconnected by client")
+    except Exception as e:
+        logger.error(f"Error in chat stream: {e}")
+        try:
+            await websocket.send_json(
+                {"type": "error", "message": f"Chat failed: {str(e)}"}
             )
             await websocket.close()
         except:

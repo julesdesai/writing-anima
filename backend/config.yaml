@@ -64,6 +64,14 @@ model:
       name: DeepSeek V3
       provider: deepseek
       description: DeepSeek's V3 model with strong reasoning and tool use
+    - id: deepseek-v3.1
+      name: DeepSeek V3.1 (Local)
+      provider: exo
+      description: DeepSeek V3.1 running locally via exo-labs cluster
+    - id: deepseek-v3.1-openrouter
+      name: DeepSeek V3.1 (OpenRouter)
+      provider: openrouter
+      description: DeepSeek V3.1 via OpenRouter for remote testing
     - id: kimi-k2
       name: Kimi K2
       provider: moonshot
@@ -97,6 +105,19 @@ model:
     max_tokens: 4096
     temperature: 0.6
     max_iterations: 20
+  openrouter:
+    api_key_env: OPENROUTER_API_KEY
+    base_url: https://openrouter.ai/api/v1
+    model: deepseek/deepseek-chat-v3.1
+    max_tokens: 4096
+    temperature: 1.0
+    max_iterations: 25
+  exo:
+    base_url: http://localhost:52415/v1
+    model: deepseek-ai/DeepSeek-V3.1
+    max_tokens: 4096
+    temperature: 1.0
+    max_iterations: 25
   hermes:
     base_url: http://localhost:8000/v1
     model: NousResearch/Hermes-2-Pro-Llama-3-70B

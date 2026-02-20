@@ -9,6 +9,7 @@ import { useUnifiedAgentCustomization } from "../../hooks/useUnifiedAgentCustomi
 import UnifiedAgentCustomizationPanel from "../AgentCustomization/UnifiedAgentCustomizationPanel";
 import feedbackHistoryService from "../../services/feedbackHistoryService";
 import animaService from "../../services/animaService";
+import CorpusGroundsViewer from "../CorpusGroundsViewer/CorpusGroundsViewer";
 import { useAuth } from "../../contexts/AuthContext";
 
 const WritingInterface = ({
@@ -45,6 +46,8 @@ const WritingInterface = ({
   const [availableModels, setAvailableModels] = useState([]);
   const [, setAnalysisStatus] = useState(null); // Status updates passed to ThoughtProcess via thoughtSteps
   const [thoughtSteps, setThoughtSteps] = useState([]);
+  const [corpusViewerOpen, setCorpusViewerOpen] = useState(false);
+  const [corpusHighlightSource, setCorpusHighlightSource] = useState(null);
   const isExecutingRef = useRef(false);
 
   // Legacy writing analysis hook - DISABLED (using flow-based agents only)
@@ -538,6 +541,13 @@ const WritingInterface = ({
     }
   };
 
+  const handleViewCorpusSource = (source) => {
+    // Spread into a new object so React always sees a state change,
+    // even if the user clicks the same source twice.
+    setCorpusHighlightSource({ ...source, _ts: Date.now() });
+    setCorpusViewerOpen(true);
+  };
+
   return (
     <>
       <div className="mx-auto px-2 py-3 space-y-3">
@@ -567,7 +577,7 @@ const WritingInterface = ({
                 <select
                   value={selectedPersonaId || ""}
                   onChange={(e) => setSelectedPersonaId(e.target.value)}
-                  className="obsidian-input w-full max-w-[180px]"
+                  className="obsidian-input w-full max-w-[280px]"
                   disabled={isExecutingFlow}
                 >
                   <option value="">Select anima...</option>
@@ -592,7 +602,7 @@ const WritingInterface = ({
               <select
                 value={selectedModel}
                 onChange={(e) => setSelectedModel(e.target.value)}
-                className="obsidian-input max-w-[120px]"
+                className="obsidian-input max-w-[280px]"
                 disabled={isExecutingFlow}
               >
                 {availableModels.length > 0 ? (
@@ -685,6 +695,7 @@ const WritingInterface = ({
               isAnalyzing={currentAnalysis.isAnalyzing}
               onExploreFramework={handleExploreFramework}
               onJumpToText={handleJumpToText}
+              onViewCorpusSource={handleViewCorpusSource}
             />
           </div>
         </div>
@@ -701,6 +712,18 @@ const WritingInterface = ({
             "Agents updated - analysis will use new configuration on next run",
           );
         }}
+      />
+
+      {/* Corpus Grounds Viewer */}
+      <CorpusGroundsViewer
+        isOpen={corpusViewerOpen}
+        onClose={() => {
+          setCorpusViewerOpen(false);
+          setCorpusHighlightSource(null);
+        }}
+        personaId={selectedPersonaId}
+        userId={currentUser?.uid}
+        highlightSource={corpusHighlightSource}
       />
 
       {/* API Test Panel */}

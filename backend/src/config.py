@@ -1,12 +1,13 @@
 """Configuration management for Anima"""
 
 import os
-from typing import Optional, List
 from pathlib import Path
+from typing import List, Optional
+
 import yaml
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings
-from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
@@ -14,6 +15,7 @@ load_dotenv()
 
 class PersonaConfig(BaseModel):
     """Persona configuration"""
+
     name: str
     corpus_path: str
     collection_name: str
@@ -29,6 +31,7 @@ class PersonaConfig(BaseModel):
 
 class ModelSpecificConfig(BaseModel):
     """Model-specific configuration"""
+
     api_key_env: Optional[str] = None
     base_url: Optional[str] = None
     model: Optional[str] = None
@@ -39,6 +42,7 @@ class ModelSpecificConfig(BaseModel):
 
 class AvailableModelConfig(BaseModel):
     """Configuration for a model available in the UI"""
+
     id: str
     name: str
     provider: str
@@ -47,18 +51,22 @@ class AvailableModelConfig(BaseModel):
 
 class ModelConfig(BaseModel):
     """Model configuration"""
+
     primary: str
     fallback: str
     available_models: List[AvailableModelConfig] = Field(default_factory=list)
     openai: ModelSpecificConfig
     claude: ModelSpecificConfig
     deepseek: ModelSpecificConfig
+    openrouter: ModelSpecificConfig = Field(default_factory=ModelSpecificConfig)
+    exo: ModelSpecificConfig = Field(default_factory=ModelSpecificConfig)
     moonshot: ModelSpecificConfig = Field(default_factory=ModelSpecificConfig)
     hermes: ModelSpecificConfig
 
 
 class AgentConfig(BaseModel):
     """Agent configuration"""
+
     max_tool_calls_per_iteration: int = 3
     system_prompt_dir: str = "src/agent/prompts/"
     force_tool_use: bool = True  # Require model to use tools
@@ -66,6 +74,7 @@ class AgentConfig(BaseModel):
 
 class VectorDBConfig(BaseModel):
     """Vector database configuration"""
+
     provider: str = "qdrant"
     host: str = "localhost"
     port: int = 6333
@@ -85,6 +94,7 @@ class VectorDBConfig(BaseModel):
 
 class EmbeddingConfig(BaseModel):
     """Embedding configuration"""
+
     provider: str = "openai"
     model: str = "text-embedding-3-small"
     dimensions: int = 1536
@@ -93,14 +103,18 @@ class EmbeddingConfig(BaseModel):
 
 class CorpusConfig(BaseModel):
     """Corpus processing configuration"""
+
     chunk_size: int = 800
     chunk_overlap: int = 100
     min_chunk_length: int = 100
-    file_types: List[str] = Field(default_factory=lambda: [".txt", ".md", ".email", ".json"])
+    file_types: List[str] = Field(
+        default_factory=lambda: [".txt", ".md", ".email", ".json"]
+    )
 
 
 class IncrementalModeConfig(BaseModel):
     """Incremental reasoning configuration for OOD queries"""
+
     enabled: bool = True
     ood_check_model: str = "gpt-4o-mini"
     max_corpus_concepts: int = 5
@@ -108,16 +122,20 @@ class IncrementalModeConfig(BaseModel):
 
 class RetrievalConfig(BaseModel):
     """Retrieval configuration"""
+
     default_k: int = 5
     max_k: int = 20
     similarity_threshold: float = 0.7
     style_pack_enabled: bool = False
     style_pack_size: int = 10
-    incremental_mode: IncrementalModeConfig = Field(default_factory=IncrementalModeConfig)
+    incremental_mode: IncrementalModeConfig = Field(
+        default_factory=IncrementalModeConfig
+    )
 
 
 class StyleConfig(BaseModel):
     """Style verification configuration"""
+
     verification_enabled: bool = False
     similarity_threshold: float = 0.75
     verification_method: str = "embedding"
@@ -125,6 +143,7 @@ class StyleConfig(BaseModel):
 
 class CostTrackingConfig(BaseModel):
     """Cost tracking configuration"""
+
     enabled: bool = True
     log_path: str = "logs/costs.json"
     budget_alert_threshold: float = 10.0
@@ -132,6 +151,7 @@ class CostTrackingConfig(BaseModel):
 
 class TTSConfig(BaseModel):
     """Text-to-Speech configuration"""
+
     enabled: bool = False
     provider: str = "local"  # "local", "kokoro", or "elevenlabs"
     use_streaming: bool = True  # Stream audio sentence-by-sentence
@@ -147,6 +167,7 @@ class TTSConfig(BaseModel):
 
 class Config(BaseModel):
     """Main configuration"""
+
     personas: dict[str, PersonaConfig]
     default_persona: str
     model: ModelConfig
@@ -166,7 +187,7 @@ class Config(BaseModel):
         if not config_file.exists():
             raise FileNotFoundError(f"Configuration file not found: {config_path}")
 
-        with open(config_file, 'r') as f:
+        with open(config_file, "r") as f:
             config_data = yaml.safe_load(f)
 
         return cls(**config_data)

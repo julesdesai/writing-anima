@@ -66,7 +66,34 @@ class AgentFactory:
                 else config.model.primary,
             )
 
-        # DeepSeek
+        # DeepSeek V3.1 via OpenRouter (remote)
+        elif (
+            "openrouter" in model_name_lower
+            or model_name_lower == "deepseek-v3.1-openrouter"
+        ):
+            logger.info(
+                f"Creating DeepSeekAgent (OpenRouter) for persona: {persona.name}"
+            )
+            return DeepSeekAgent(
+                persona_id=persona_id,
+                config=config,
+                model=config.model.openrouter.model,
+                config_section="openrouter",
+            )
+
+        # DeepSeek V3.1 via exo-labs (local)
+        elif "exo" in model_name_lower or model_name_lower == "deepseek-v3.1":
+            logger.info(
+                f"Creating DeepSeekAgent (exo-labs local) for persona: {persona.name}"
+            )
+            return DeepSeekAgent(
+                persona_id=persona_id,
+                config=config,
+                model=config.model.exo.model,
+                config_section="exo",
+            )
+
+        # DeepSeek (API)
         elif "deepseek" in model_name_lower:
             logger.info(f"Creating DeepSeekAgent for persona: {persona.name}")
             return DeepSeekAgent(
@@ -109,7 +136,7 @@ class AgentFactory:
         else:
             raise ValueError(
                 f"Unsupported model: {model_name}. "
-                f"Supported: openai (gpt-4, gpt-3.5), claude, deepseek, kimi-multi, moonshot, hermes"
+                f"Supported: openai (gpt-4, gpt-3.5), claude, deepseek, deepseek-v3.1 (exo), kimi-multi, moonshot, hermes"
             )
 
     @staticmethod

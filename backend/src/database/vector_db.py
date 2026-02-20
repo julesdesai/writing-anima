@@ -1,28 +1,28 @@
 """Vector database interface for Qdrant"""
 
-from typing import List, Optional, Dict, Any
 import logging
-from uuid import uuid4
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+from uuid import uuid4
 
 from qdrant_client import QdrantClient
+from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import (
     Distance,
-    VectorParams,
-    PointStruct,
-    Filter,
     FieldCondition,
-    Range,
+    Filter,
     MatchAny,
+    MatchText,
     PayloadSchemaType,
+    PointStruct,
+    Range,
     TextIndexParams,
     TokenizerType,
-    MatchText,
+    VectorParams,
 )
-from qdrant_client.http.exceptions import UnexpectedResponse
 
-from .schema import CorpusDocument, SearchResult, SearchFilters, SourceType
 from ..config import get_config
+from .schema import CorpusDocument, SearchFilters, SearchResult, SourceType
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,9 @@ class VectorDatabase:
             logger.error(f"Error creating collection: {e}")
             raise
 
-    def add_documents(self, documents: List[CorpusDocument], batch_size: int = 100) -> None:
+    def add_documents(
+        self, documents: List[CorpusDocument], batch_size: int = 100
+    ) -> None:
         """Add documents to the collection in batches"""
         if not documents:
             logger.warning("No documents to add")
@@ -164,12 +166,14 @@ class VectorDatabase:
         logger.info(f"Uploading {total_points} documents in batches of {batch_size}...")
 
         for i in range(0, total_points, batch_size):
-            batch = points[i:i + batch_size]
+            batch = points[i : i + batch_size]
             self.client.upsert(
                 collection_name=self.collection_name,
                 points=batch,
             )
-            logger.info(f"  Uploaded batch {i // batch_size + 1}/{(total_points + batch_size - 1) // batch_size} ({len(batch)} documents)")
+            logger.info(
+                f"  Uploaded batch {i // batch_size + 1}/{(total_points + batch_size - 1) // batch_size} ({len(batch)} documents)"
+            )
 
         logger.info(f"✓ Successfully added {total_points} documents to collection")
 
@@ -328,10 +332,14 @@ class VectorDatabase:
 
                 # If keyword search returns very few results, it's too restrictive
                 if len(keyword_results) < k // 2:
-                    logger.debug(f"Keyword search too restrictive ({len(keyword_results)} results), using semantic-only")
+                    logger.debug(
+                        f"Keyword search too restrictive ({len(keyword_results)} results), using semantic-only"
+                    )
                     keyword_results = []
             except Exception as e:
-                logger.debug(f"Keyword search failed, falling back to semantic-only: {e}")
+                logger.debug(
+                    f"Keyword search failed, falling back to semantic-only: {e}"
+                )
                 keyword_results = []
 
         # 3. Combine results using Reciprocal Rank Fusion (RRF)
@@ -387,17 +395,24 @@ class VectorDatabase:
                 # Semantic component
                 semantic_component = 0
                 if info["semantic_rank"] is not None:
-                    semantic_component = semantic_weight / (k_rrf + info["semantic_rank"])
+                    semantic_component = semantic_weight / (
+                        k_rrf + info["semantic_rank"]
+                    )
 
                 # Keyword component
                 keyword_component = 0
                 if info["keyword_rank"] is not None:
-                    keyword_component = (1 - semantic_weight) / (k_rrf + info["keyword_rank"])
+                    keyword_component = (1 - semantic_weight) / (
+                        k_rrf + info["keyword_rank"]
+                    )
 
                 hybrid_score = semantic_component + keyword_component
 
                 # Bonus: if document appears in both results, it gets extra points
-                if info["semantic_rank"] is not None and info["keyword_rank"] is not None:
+                if (
+                    info["semantic_rank"] is not None
+                    and info["keyword_rank"] is not None
+                ):
                     hybrid_score *= 1.2  # 20% boost for appearing in both
 
                 final_results.append(
@@ -419,6 +434,48 @@ class VectorDatabase:
         )
 
         return final_results[:k]
+
+    def get_all_documents(self) -> List[Dict[str, Any]]:
+        """
+        Retrieve all documents from the collection using scroll pagination.
+
+        Returns:
+            List of dicts with 'text' and 'metadata' keys
+        """
+        all_docs = []
+        offset = None
+        batch_size = 100
+
+        try:
+            while True:
+                results, next_offset = self.client.scroll(
+                    collection_name=self.collection_name,
+                    limit=batch_size,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+
+                for point in results:
+                    all_docs.append(
+                        {
+                            "text": point.payload.get("text", ""),
+                            "metadata": point.payload.get("metadata", {}),
+                        }
+                    )
+
+                if next_offset is None:
+                    break
+                offset = next_offset
+
+            logger.info(
+                f"Retrieved {len(all_docs)} documents from {self.collection_name}"
+            )
+            return all_docs
+
+        except Exception as e:
+            logger.error(f"Error retrieving all documents: {e}")
+            raise
 
     def get_collection_info(self) -> Dict[str, Any]:
         """Get information about the collection"""

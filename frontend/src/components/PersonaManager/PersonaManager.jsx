@@ -3,13 +3,14 @@ import {
   Plus,
   FileText,
   AlertCircle,
-  Upload,
+  Pencil,
   Trash2,
   Search,
   AlertTriangle,
 } from "lucide-react";
 import CreatePersonaModal from "./CreatePersonaModal";
 import CorpusUploadModal from "./CorpusUploadModal";
+import AnimaChat from "../AnimaChat/AnimaChat";
 import { useAuth } from "../../contexts/AuthContext";
 
 const PersonaManager = () => {
@@ -18,6 +19,7 @@ const PersonaManager = () => {
   const [selectedPersona, setSelectedPersona] = useState(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
+  const [showChat, setShowChat] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState("");
@@ -124,6 +126,11 @@ const PersonaManager = () => {
     e.stopPropagation();
     setSelectedPersona(persona);
     setShowUploadModal(true);
+  };
+
+  const handleOpenChat = (persona) => {
+    setSelectedPersona(persona);
+    setShowChat(true);
   };
 
   const handleCorpusUploaded = () => {
@@ -282,9 +289,7 @@ const PersonaManager = () => {
                 {filteredAndSortedPersonas.map((persona) => (
                   <tr
                     key={persona.id}
-                    onClick={() =>
-                      handleUploadCorpus(persona, { stopPropagation: () => {} })
-                    }
+                    onClick={() => handleOpenChat(persona)}
                     className={`hover:bg-obsidian-bg cursor-pointer transition-colors group ${
                       persona.corpus_available === false ? "opacity-60" : ""
                     }`}
@@ -323,9 +328,9 @@ const PersonaManager = () => {
                         <button
                           onClick={(e) => handleUploadCorpus(persona, e)}
                           className="p-1 text-obsidian-text-muted hover:text-obsidian-accent-primary hover:bg-obsidian-accent-pale rounded transition-colors"
-                          title="Upload corpus"
+                          title="Edit corpus"
                         >
-                          <Upload className="w-3.5 h-3.5" />
+                          <Pencil className="w-3.5 h-3.5" />
                         </button>
                         <button
                           onClick={(e) => handleDeletePersona(persona.id, e)}
@@ -362,6 +367,16 @@ const PersonaManager = () => {
             onUploaded={handleCorpusUploaded}
           />
         )}
+
+        <AnimaChat
+          isOpen={showChat}
+          onClose={() => {
+            setShowChat(false);
+            setSelectedPersona(null);
+          }}
+          persona={selectedPersona}
+          userId={currentUser?.uid}
+        />
       </div>
     </div>
   );

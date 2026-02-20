@@ -1,7 +1,7 @@
-import React from 'react';
-import { MessageSquare, Brain } from 'lucide-react';
-import CriticCard from './CriticCard';
-import './FeedbackPanel.css';
+import React from "react";
+import { MessageSquare, Brain } from "lucide-react";
+import CriticCard from "./CriticCard";
+import "./FeedbackPanel.css";
 
 const FeedbackPanel = ({
   feedback,
@@ -17,9 +17,10 @@ const FeedbackPanel = ({
   onApplyInsight,
   onExploreFramework,
   onJumpToText,
+  onViewCorpusSource,
   resolvedFeedback = [],
   showResolved = false,
-  onToggleResolved
+  onToggleResolved,
 }) => {
   const displayFeedback = showResolved ? resolvedFeedback : feedback;
 
@@ -27,11 +28,13 @@ const FeedbackPanel = ({
     <div className="obsidian-panel h-[calc(100vh-180px)] flex flex-col">
       <div className="h-[36px] px-3 border-b border-obsidian-border flex items-center">
         <h2 className="text-xs font-semibold text-obsidian-text-tertiary uppercase tracking-wide">
-          {showResolved ? 'Resolved' : 'Criticism'}
+          {showResolved ? "Resolved" : "Criticism"}
         </h2>
 
         {!onToggleResolved && (
-          <span className="ml-auto text-xs text-obsidian-text-muted mono">{feedback.length}</span>
+          <span className="ml-auto text-xs text-obsidian-text-muted mono">
+            {feedback.length}
+          </span>
         )}
 
         {/* Toggle button for resolved criticism */}
@@ -40,12 +43,16 @@ const FeedbackPanel = ({
             onClick={onToggleResolved}
             className={`ml-auto text-xs px-2 py-0.5 rounded transition-colors ${
               showResolved
-                ? 'bg-green-100/50 text-green-700 hover:bg-green-100 border border-green-300'
-                : 'bg-obsidian-bg text-obsidian-text-muted hover:bg-obsidian-surface border border-obsidian-border mono'
+                ? "bg-green-100/50 text-green-700 hover:bg-green-100 border border-green-300"
+                : "bg-obsidian-bg text-obsidian-text-muted hover:bg-obsidian-surface border border-obsidian-border mono"
             }`}
-            title={showResolved ? 'Show active criticism' : 'Show resolved criticism'}
+            title={
+              showResolved ? "Show active criticism" : "Show resolved criticism"
+            }
           >
-            {showResolved ? `← ${feedback.length}` : `✓ ${resolvedFeedback.length}`}
+            {showResolved
+              ? `← ${feedback.length}`
+              : `✓ ${resolvedFeedback.length}`}
           </button>
         )}
 
@@ -53,9 +60,18 @@ const FeedbackPanel = ({
         {!showResolved && isAnalyzing && (
           <div className="flex items-center gap-1 text-xs text-obsidian-accent-primary">
             <div className="flex gap-0.5">
-              <div className="w-1 h-1 bg-obsidian-accent-primary rounded-full animate-bounce" style={{animationDelay: '0ms'}}></div>
-              <div className="w-1 h-1 bg-obsidian-accent-primary rounded-full animate-bounce" style={{animationDelay: '150ms'}}></div>
-              <div className="w-1 h-1 bg-obsidian-accent-primary rounded-full animate-bounce" style={{animationDelay: '300ms'}}></div>
+              <div
+                className="w-1 h-1 bg-obsidian-accent-primary rounded-full animate-bounce"
+                style={{ animationDelay: "0ms" }}
+              ></div>
+              <div
+                className="w-1 h-1 bg-obsidian-accent-primary rounded-full animate-bounce"
+                style={{ animationDelay: "150ms" }}
+              ></div>
+              <div
+                className="w-1 h-1 bg-obsidian-accent-primary rounded-full animate-bounce"
+                style={{ animationDelay: "300ms" }}
+              ></div>
             </div>
           </div>
         )}
@@ -74,8 +90,10 @@ const FeedbackPanel = ({
             <MessageSquare className="w-8 h-8 text-obsidian-border mx-auto mb-2 opacity-40" />
             <p className="text-xs text-obsidian-text-muted">
               {showResolved
-                ? 'No resolved items'
-                : (isMonitoring ? 'No criticism yet' : 'Paused')}
+                ? "No resolved items"
+                : isMonitoring
+                  ? "No criticism yet"
+                  : "Paused"}
             </p>
           </div>
         ) : (
@@ -85,7 +103,7 @@ const FeedbackPanel = ({
               className="feedback-card-enter"
               style={{
                 animationDelay: `${Math.min(index * 100, 800)}ms`,
-                opacity: 0
+                opacity: 0,
               }}
             >
               <CriticCard
@@ -96,6 +114,7 @@ const FeedbackPanel = ({
                 onApplyInsight={onApplyInsight}
                 onExploreFramework={onExploreFramework}
                 onJumpToText={onJumpToText}
+                onViewCorpusSource={onViewCorpusSource}
               />
             </div>
           ))

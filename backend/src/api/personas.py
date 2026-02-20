@@ -16,6 +16,9 @@ from ..database.vector_db import VectorDatabase
 from .models import (
     AvailableModel,
     AvailableModelsResponse,
+    CorpusChunk,
+    CorpusDocumentsResponse,
+    CorpusFileModel,
     CorpusUploadResponse,
     IngestionStatus,
     PersonaCreate,
@@ -487,3 +490,91 @@ async def get_ingestion_status(persona_id: str, user_id: str):
     except Exception as e:
         logger.error(f"Error getting ingestion status: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
+
+
+@router.get("/{persona_id}/corpus/documents", response_model=CorpusDocumentsResponse)
+async def get_corpus_documents(persona_id: str, user_id: str):
+    """Get all corpus documents for a persona, grouped by source file"""
+    persona = None
+
+    if db is not None:
+        doc = db.collection("personas").document(persona_id).get()
+        if not doc.exists:
+            raise HTTPException(status_code=404, detail="Persona not found")
+        persona = doc.to_dict()
+    else:
+        if persona_id not in personas_store:
+            raise HTTPException(status_code=404, detail="Persona not found")
+        persona = personas_store[persona_id]
+
+    if persona["user_id"] != user_id:
+        raise HTTPException(
+            status_code=403, detail="Not authorized to access this persona"
+        )
+
+    try:
+        config = get_config()
+        collection_name = persona["collection_name"]
+        vector_db = VectorDatabase(collection_name)
+        all_docs = vector_db.get_all_documents()
+
+        # Group chunks by file_path
+        files_map: dict = {}
+        for doc_item in all_docs:
+            metadata = doc_item.get("metadata", {})
+            file_path = metadata.get("file_path", "unknown")
+            if file_path not in files_map:
+                files_map[file_path] = []
+            files_map[file_path].append(doc_item)
+
+        # Build response, sorting chunks within each file and deduplicating overlaps
+        overlap_size = config.corpus.chunk_overlap
+        files = []
+        for file_path, chunks in sorted(files_map.items()):
+            filename = os.path.basename(file_path)
+            sorted_chunks = sorted(
+                chunks, key=lambda c: c.get("metadata", {}).get("chunk_index", 0)
+            )
+
+            # Deduplicate overlap regions between consecutive chunks
+            deduped_texts = []
+            for i, c in enumerate(sorted_chunks):
+                text = c["text"]
+                if i > 0 and overlap_size > 0 and deduped_texts:
+                    prev_text = deduped_texts[-1]
+                    # Look for where the end of the previous chunk appears
+                    # at the start of this chunk (the overlap region)
+                    suffix = prev_text[-overlap_size * 2 :]  # generous search window
+                    best_overlap = 0
+                    for length in range(min(len(suffix), len(text)), 0, -1):
+                        if text[:length] == suffix[-length:]:
+                            best_overlap = length
+                            break
+                    if best_overlap > 0:
+                        text = text[best_overlap:]
+                deduped_texts.append(text)
+
+            corpus_chunks = [
+                CorpusChunk(
+                    text=deduped_texts[i],
+                    chunk_index=c.get("metadata", {}).get("chunk_index", i),
+                    char_length=len(deduped_texts[i]),
+                )
+                for i, c in enumerate(sorted_chunks)
+            ]
+            files.append(
+                CorpusFileModel(
+                    file_path=file_path,
+                    filename=filename,
+                    chunk_count=len(corpus_chunks),
+                    chunks=corpus_chunks,
+                )
+            )
+
+        return CorpusDocumentsResponse(persona_id=persona_id, files=files)
+
+    except Exception as e:
+        logger.error(f"Error getting corpus documents: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Failed to get corpus documents: {str(e)}"
+        )

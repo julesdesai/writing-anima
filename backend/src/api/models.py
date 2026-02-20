@@ -206,6 +206,57 @@ class StreamComplete(BaseModel):
     processing_time: float
 
 
+# Corpus Document Models
+class CorpusChunk(BaseModel):
+    """A single chunk from a corpus document"""
+
+    text: str
+    chunk_index: int
+    char_length: int
+
+
+class CorpusFileModel(BaseModel):
+    """A corpus file reconstructed from chunks"""
+
+    file_path: str
+    filename: str
+    chunk_count: int
+    chunks: List[CorpusChunk]
+
+
+class CorpusDocumentsResponse(BaseModel):
+    """Response containing all corpus documents for a persona"""
+
+    persona_id: str
+    files: List[CorpusFileModel]
+
+
+# Chat Models
+class ChatMessage(BaseModel):
+    """A single message in a chat conversation"""
+
+    role: str = Field(..., description="'user' or 'assistant'")
+    content: str
+
+
+class ChatRequest(BaseModel):
+    """Request for chatting with a persona"""
+
+    message: str = Field(..., min_length=1)
+    persona_id: str
+    user_id: str
+    conversation_history: List[ChatMessage] = Field(default_factory=list)
+    model: Optional[str] = Field(None, description="Model override")
+
+
+class ChatResponse(BaseModel):
+    """Response from chatting with a persona"""
+
+    response: str
+    persona_name: str
+    persona_id: str
+
+
 # Health Check
 class HealthResponse(BaseModel):
     """Health check response"""

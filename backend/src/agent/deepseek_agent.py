@@ -23,6 +23,9 @@ class DeepSeekAgent(BaseAgent):
         model: str = "deepseek-chat",
         use_json_mode: bool = False,
         prompt_file: str = "base.txt",
+        base_url: str = None,
+        api_key: str = None,
+        config_section: str = "deepseek",
     ):
         """
         Initialize DeepSeek agent.
@@ -33,25 +36,44 @@ class DeepSeekAgent(BaseAgent):
             model: DeepSeek model identifier (deepseek-chat for V3, deepseek-reasoner for R1)
             use_json_mode: Whether to use JSON response format (not supported by DeepSeek)
             prompt_file: Which prompt template to use
+            base_url: Override base URL (e.g., for local exo-labs backend)
+            api_key: Override API key (e.g., for local backends that don't need one)
+            config_section: Config section to read settings from (default: "deepseek")
         """
         super().__init__(persona_id, config)
 
-        # Get API key
-        api_key = self.config.get_api_key("deepseek")
-        if not api_key:
-            raise ValueError("DEEPSEEK_API_KEY not found in environment variables")
+        model_config = getattr(self.config.model, config_section)
+
+        # Get API key: explicit override > config > "no-key" for local backends
+        resolved_api_key = (
+            api_key
+            or self.config.get_api_key(config_section)
+            or self.config.get_api_key("deepseek")
+        )
+        if not resolved_api_key:
+            if base_url and ("localhost" in base_url or "127.0.0.1" in base_url):
+                resolved_api_key = "no-key-required"
+            else:
+                raise ValueError("DEEPSEEK_API_KEY not found in environment variables")
+
+        resolved_base_url = (
+            base_url or model_config.base_url or self.config.model.deepseek.base_url
+        )
 
         self.client = OpenAI(
-            api_key=api_key,
-            base_url=self.config.model.deepseek.base_url,
+            api_key=resolved_api_key,
+            base_url=resolved_base_url,
         )
         self.model = model
-        self.max_iterations = self.config.model.deepseek.max_iterations
+        self.max_iterations = model_config.max_iterations
+        self.temperature = model_config.temperature
         # DeepSeek doesn't support strict JSON schema mode, so we disable it
         self.use_json_mode = False
         self.prompt_file = prompt_file
 
-        logger.info(f"Initialized DeepSeekAgent with model: {model}")
+        logger.info(
+            f"Initialized DeepSeekAgent with model: {model}, base_url: {resolved_base_url}"
+        )
 
     def _rewrite_in_style(
         self, feedback_json: str, retrieved_samples: List[Dict] = None
@@ -279,7 +301,7 @@ Return ONLY the rewritten JSON array. No explanation, no markdown fences. Start 
             "messages": full_messages,
             "tools": tools,
             "tool_choice": tool_choice,
-            "temperature": self.config.model.deepseek.temperature,
+            "temperature": self.temperature,
         }
 
         # Add JSON mode if enabled
@@ -420,7 +442,7 @@ Return ONLY the rewritten JSON array. No explanation, no markdown fences. Start 
                     "messages": full_messages,
                     "tools": tools,
                     "tool_choice": tool_choice,
-                    "temperature": self.config.model.deepseek.temperature,
+                    "temperature": self.temperature,
                     "stream": True,
                 }
 

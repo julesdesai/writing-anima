@@ -395,6 +395,151 @@ class AnimaService {
   }
 
   /**
+   * Get all corpus documents for a persona, grouped by source file
+   * @param {string} personaId - Persona ID
+   * @param {string} userId - Firebase UID
+   * @returns {Promise<object>} Corpus documents response with files array
+   */
+  async getCorpusDocuments(personaId, userId) {
+    try {
+      const response = await fetch(
+        `${API_URL}/api/personas/${personaId}/corpus/documents?user_id=${userId}`,
+      );
+
+      if (!response.ok) {
+        throw new Error("Failed to fetch corpus documents");
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Error fetching corpus documents:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Chat with a persona in their voice (conversational mode)
+   * @param {string} message - User's message
+   * @param {string} personaId - ID of the persona to chat with
+   * @param {string} userId - Firebase UID
+   * @param {Array} conversationHistory - Previous messages [{role, content}]
+   * @param {string} model - Optional model override
+   * @returns {Promise<object>} { response, persona_name, persona_id }
+   */
+  async chatWithPersona(
+    message,
+    personaId,
+    userId,
+    conversationHistory = [],
+    model = null,
+  ) {
+    try {
+      const response = await fetch(`${API_URL}/api/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message,
+          persona_id: personaId,
+          user_id: userId,
+          conversation_history: conversationHistory,
+          model,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || "Chat failed");
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error("Error chatting with persona:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Chat with a persona using streaming WebSocket
+   * @param {string} message - User's message
+   * @param {string} personaId - Persona ID
+   * @param {string} userId - Firebase UID
+   * @param {Array} conversationHistory - Previous messages [{role, content}]
+   * @param {object} callbacks - { onToken, onStatus, onComplete, onError }
+   * @param {string} model - Optional model override
+   * @returns {Promise<WebSocket>} WebSocket connection
+   */
+  streamChat(
+    message,
+    personaId,
+    userId,
+    conversationHistory = [],
+    callbacks = {},
+    model = null,
+  ) {
+    const {
+      onToken = () => {},
+      onStatus = () => {},
+      onComplete = () => {},
+      onError = () => {},
+    } = callbacks;
+
+    return new Promise((resolve, reject) => {
+      const ws = new WebSocket(`${WS_URL}/api/chat/stream`);
+
+      ws.onopen = () => {
+        ws.send(
+          JSON.stringify({
+            message,
+            persona_id: personaId,
+            user_id: userId,
+            conversation_history: conversationHistory,
+            model,
+          }),
+        );
+        resolve(ws);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          switch (data.type) {
+            case "token":
+              onToken(data.content);
+              break;
+            case "status":
+              onStatus(data.message);
+              break;
+            case "complete":
+              onComplete(data.response);
+              ws.close();
+              break;
+            case "error":
+              onError(new Error(data.message || "Chat failed"));
+              ws.close();
+              break;
+            default:
+              break;
+          }
+        } catch (err) {
+          console.error("Error parsing chat stream message:", err);
+        }
+      };
+
+      ws.onerror = (error) => {
+        console.error("Chat WebSocket error:", error);
+      };
+
+      ws.onclose = (event) => {
+        if (event.code !== 1000 && event.code !== 1005) {
+          onError(new Error("Connection closed unexpectedly"));
+        }
+      };
+    });
+  }
+
+  /**
    * Check if backend is healthy
    * @returns {Promise<object>} Health status
    */
